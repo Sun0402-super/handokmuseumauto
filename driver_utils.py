@@ -38,7 +38,11 @@ def setup_chrome_driver(headless=True, use_profile=True):
     # [수정] 배포 환경(리눅스) 대응
     if sys.platform != 'win32':
         options.add_argument('--headless')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-setuid-sandbox')
+        # Streamlit Cloud 등 리눅스 환경의 chromium 경로 지정
+        options.binary_location = "/usr/bin/chromium"
     
     # [중요] 최신 크롬(140+) 안정성을 위한 추가 플래그
     options.add_argument('--no-first-run')
