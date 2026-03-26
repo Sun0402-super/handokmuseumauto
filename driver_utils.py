@@ -68,8 +68,13 @@ def setup_chrome_driver(headless=True, use_profile=True):
         if sys.platform == 'win32':
             driver = webdriver.Chrome(options=options)
         else:
-            # 리눅스/배포 환경용 서비스 설정
-            service = Service(ChromeDriverManager().install())
+            # 리눅스/배포 환경용 서비스 설정 (시스템 설치된 드라이버 우선 시도)
+            # packages.txt로 설치된 드라이버 경로는 보통 /usr/bin/chromedriver
+            system_driver_path = "/usr/bin/chromedriver"
+            if os.path.exists(system_driver_path):
+                service = Service(system_driver_path)
+            else:
+                service = Service(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=options)
         
         # [개선] 초기 기동 시 창이 안정화될 때까지 충분히 대기

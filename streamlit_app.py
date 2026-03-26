@@ -5,12 +5,26 @@ import os
 import time
 import json
 import io
+import sys
+
+# [수정] 배포 환경에서의 로컬 모듈 인식 문제 해결을 위해 현재 경로를 시스템 경로에 추가
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.append(current_dir)
 
 # 설정
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-RESULT_DIR = r"C:\Users\kr2200047\OneDrive - handokinc\J_ 한독의약박물관 - 문서\한독의약박물관 관람 후기"
-os.makedirs(RESULT_DIR, exist_ok=True)
+BASE_DIR = current_dir
 
+# ⚠️ 결과 저장 폴더(기본값). 환경에 맞게 수정하거나, 사이드바에서 변경할 수 있습니다.
+if sys.platform == 'win32':
+    DEFAULT_RESULT_DIR = r"C:\Users\kr2200047\OneDrive - handokinc\J_ 한독의약박물관 - 문서\한독의약박물관 관람 후기"
+else:
+    DEFAULT_RESULT_DIR = os.path.join(BASE_DIR, "reviews")
+
+os.makedirs(DEFAULT_RESULT_DIR, exist_ok=True)
+RESULT_DIR = DEFAULT_RESULT_DIR # 전역 변수 유지
+
+# ⚠️ API Key는 코드에 하드코딩하지 않는 것을 권장합니다.
 DEFAULT_API_KEY = "AIzaSyDLD7stdtusDTxCYrqonQiL4S5m050X98s"
 
 # 페이지 설정
@@ -212,11 +226,19 @@ def save_with_autofit(df, filepath, sheet_name='Sheet1'):
             adjusted_width = (max_length + 2)
             worksheet.column_dimensions[column].width = min(max(adjusted_width, 10), 80)
 
-# 사이드바
 with st.sidebar:
     st.header("⚙️ 설정")
-    # 설정값
-    api_key = os.getenv("GEMINI_API_KEY")
+    
+    # [수정] 결과 저장 폴더 설정 (배포 환경 고려)
+    RESULT_DIR = st.text_input("결과 저장 폴더 (로컬 경로)", value=DEFAULT_RESULT_DIR)
+    os.makedirs(RESULT_DIR, exist_ok=True)
+
+    # 설정값 (Streamlit Secrets 우선 사용)
+    default_api_key = os.getenv("GEMINI_API_KEY", "")
+    if "GEMINI_API_KEY" in st.secrets:
+        default_api_key = st.secrets["GEMINI_API_KEY"]
+    
+    api_key = st.text_input("Gemini API Key", value=default_api_key, type="password")
     use_sentiment = True
     insta_max_posts = 100 
 
