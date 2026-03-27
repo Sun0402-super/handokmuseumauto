@@ -47,6 +47,7 @@ try:
     modules_loaded = True
 except ImportError as e:
     st.error(f"필요한 크롤링 모듈을 로드하지 못했습니다: {e}")
+    st.info("requirements.txt의 패키지들이 모두 설치되었는지 확인해 주세요. 특히 Selenium과 크롬 드라이버 설정이 중요합니다.")
     modules_loaded = False
 
 # 커스텀 CSS
@@ -229,16 +230,17 @@ def save_with_autofit(df, filepath, sheet_name='Sheet1'):
 with st.sidebar:
     st.header("⚙️ 설정")
     
-    # [수정] 결과 저장 폴더 설정 (배포 환경 고려)
-    RESULT_DIR = st.text_input("결과 저장 폴더 (로컬 경로)", value=DEFAULT_RESULT_DIR)
-    os.makedirs(RESULT_DIR, exist_ok=True)
-
-    # 설정값 (Streamlit Secrets 우선 사용)
-    default_api_key = os.getenv("GEMINI_API_KEY", "")
-    if "GEMINI_API_KEY" in st.secrets:
-        default_api_key = st.secrets["GEMINI_API_KEY"]
+    # 설정값 (Streamlit Secrets 또는 환경 변수 우선 사용, 없을 시 기본값 사용)
+    api_key = os.getenv("GEMINI_API_KEY", DEFAULT_API_KEY)
+    try:
+        if "GEMINI_API_KEY" in st.secrets:
+            api_key = st.secrets["GEMINI_API_KEY"]
+    except:
+        pass
     
-    api_key = st.text_input("Gemini API Key", value=default_api_key, type="password")
+    # RESULT_DIR은 전역 DEFAULT_RESULT_DIR 사용 (필요 시 여기서 재정의)
+    RESULT_DIR = DEFAULT_RESULT_DIR 
+    os.makedirs(RESULT_DIR, exist_ok=True)
     use_sentiment = True
     insta_max_posts = 100 
 
