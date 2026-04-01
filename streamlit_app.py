@@ -7,12 +7,20 @@ import json
 import io
 import sys
 
-# [수정] 배포 환경에서의 로컬 모듈 인식 문제 해결을 위해 현재 경로를 시스템 경로에 추가
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.append(current_dir)
+# [수정] 배포 환경(Streamlit Cloud 등)에서의 로컬 모듈 인식 문제 해결을 위해 현재 경로를 최우선 순위로 추가
+import os
+import sys
 
-# 설정
+# 현재 파일의 절대 경로 기준 디렉토리를 찾습니다.
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# sys.path의 가장 처음에 현재 디렉토리를 추가하여 로컬 모듈이 최우선으로 검색되게 합니다.
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+if os.getcwd() not in sys.path:
+    sys.path.insert(0, os.getcwd())
+
+# BASE_DIR 명시
 BASE_DIR = current_dir
 
 # ⚠️ 결과 저장 폴더(기본값). 환경에 맞게 수정하거나, 사이드바에서 변경할 수 있습니다.
@@ -46,8 +54,23 @@ try:
     from filter_utils import is_relevant_by_keywords
     modules_loaded = True
 except ImportError as e:
-    st.error(f"필요한 크롤링 모듈을 로드하지 못했습니다: {e}")
-    st.info("requirements.txt의 패키지들이 모두 설치되었는지 확인해 주세요. 특히 Selenium과 크롬 드라이버 설정이 중요합니다.")
+    st.error(f"❌ 필요한 크롤링 모듈을 로드하지 못했습니다: {e}")
+    
+    # 상세 진단 정보 출력 (배포 환경 디버깅용)
+    with st.expander("🔍 상세 진단 정보 (Streamlit Cloud 환경 확인)"):
+        st.write(f"**현재 작업 경로 (CWD):** `{os.getcwd()}`")
+        st.write(f"**현재 파일 경로 (__file__):** `{__file__}`")
+        st.write(f"**시스템 경로 (sys.path):**")
+        st.write(sys.path)
+        
+        st.write("**현재 디렉토리 파일 목록:**")
+        try:
+            files = os.listdir(os.getcwd())
+            st.write(files)
+        except Exception as err:
+            st.write(f"파일 목록을 읽을 수 없습니다: {err}")
+            
+    st.info("💡 **해결 방법:** GitHub에 모든 `.py` 파일(특히 `naver_blog_crawling.py` 등)이 업로드되었는지 확인해 주세요. 또한 `requirements.txt`에 필요한 패키지가 모두 포함되어 있는지 확인이 필요합니다.")
     modules_loaded = False
 
 # 커스텀 CSS
