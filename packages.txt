@@ -1,2 +1,6 @@
 chromium
 chromium-driver
+fonts-nanum
+libnss3
+libgconf-2-4
+libasound2

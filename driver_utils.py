@@ -23,40 +23,48 @@ def setup_chrome_driver(headless=True, use_profile=True):
         print("     [정보] 크롬 불안정 상태 감지로 인해 Edge 브라우저를 사용합니다.")
         return setup_edge_driver(headless=headless, use_profile=use_profile)
 
+    # [개선] 스텔스 기능 추가 (탐지 회피)
+    try:
+        from selenium_stealth import stealth
+    except ImportError:
+        stealth = None
+
     options = ChromeOptions()
-    if headless:
+    
+    # [중요] 리눅스(Streamlit Cloud) 환경에서는 무조건 Headless 모드를 강제합니다. (창 띄우기 불가)
+    is_linux = sys.platform != 'win32'
+    if is_linux:
+        headless = True
         options.add_argument('--headless=new')
-    
-    # 기본 안정성 및 자동화 탐지 방지 옵션
-    options.add_argument('--window-size=1024,768')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--disable-extensions')
-    options.add_argument('--remote-allow-origins=*')
-    
-    # [수정] 배포 환경(리눅스) 대응
-    if sys.platform != 'win32':
-        options.add_argument('--headless')
         options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-setuid-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--single-process')
         
-        # Streamlit Cloud 등 리눅스 환경의 chromium 경로 자동 탐색
+        # 크로미움 바이너리 경로 탐색
         for path in ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"]:
             if os.path.exists(path):
                 options.binary_location = path
                 break
-    
-    # [중요] 최신 크롬(140+) 안정성을 위한 추가 플래그
-    options.add_argument('--no-first-run')
-    options.add_argument('--no-default-browser-check')
-    options.add_argument('--password-store=basic')
-    # 자동 최적화 및 사이드바 등 불필요한 기능 제거 (146 버전 충돌 방지)
-    options.add_argument('--disable-features=OptimizationGuideModelDownloading,OptimizationHints,OptimizationTargetPrediction,SidePanelPinning,UserBypassUI,WhatsNewUI,Translate')
+    else:
+        if headless:
+            options.add_argument('--headless=new')
+            
+    # 공동 옵션 (봇 탐지 회피 및 폰트 렌더링 최적화)
+    options.add_argument('--window-size=1920,1080')
+    options.add_argument('--disable-gpu')
     options.add_argument('--disable-blink-features=AutomationControlled')
+    options.add_argument('--lang=ko')
+    options.add_argument('--force-device-scale-factor=1')
     
-    options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging", "disable-popup-blocking"])
+    # 랜덤 User-Agent 설정
+    ua_list = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    ]
+    options.add_argument(f'user-agent={ua_list[int(time.time()) % len(ua_list)]}')
+
+    options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
     options.add_experimental_option('useAutomationExtension', False)
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -68,57 +76,40 @@ def setup_chrome_driver(headless=True, use_profile=True):
         options.add_argument("--profile-directory=Default")
 
     try:
-        # 크롬 구동 시도
-        if sys.platform == 'win32':
-            driver = webdriver.Chrome(options=options)
-        else:
-            # 리눅스/배포 환경용 서비스 설정 (시스템 설치된 드라이버 우선 시도)
-            # packages.txt로 설치된 드라이버 경로는 보통 /usr/bin/chromedriver
-            driver_paths = ["/usr/bin/chromedriver", "/usr/lib/chromium-browser/chromedriver"]
-            service = None
-            for p in driver_paths:
-                if os.path.exists(p):
-                    service = Service(p)
-                    break
-            
-            if not service:
-                # shutil.which로 시스템 경로에서 찾기
-                sys_driver = shutil.which("chromedriver")
-                if sys_driver:
-                    service = Service(sys_driver)
-                else:
-                    service = Service() # 기본 경로 시도
-                    
+        if is_linux:
+            # 리눅스 환경에서는 서비스 경로 명시 시도
+            service_path = shutil.which("chromedriver") or "/usr/bin/chromedriver"
+            service = Service(service_path)
             driver = webdriver.Chrome(service=service, options=options)
+        else:
+            driver = webdriver.Chrome(options=options)
+
+        # [중요] 스텔스 적용 (라이브러리 성공 시)
+        if stealth:
+            stealth(driver,
+                languages=["ko-KR", "ko", "en-US", "en"],
+                vendor="Google Inc.",
+                platform="Win32",
+                webgl_vendor="Intel Inc.",
+                renderer="Intel Iris OpenGL Engine",
+                fix_hairline=True,
+            )
         
-        # [개선] 초기 기동 시 창이 안정화될 때까지 충분히 대기
-        time.sleep(5) 
-        
-        # 헬스 체크: 창이 살아있고 세션이 유효한지 확인
-        try:
-            _ = driver.window_handles
-            if not driver.current_url:
-                raise Exception("브라우저가 공백 상태입니다.")
-            return driver, "SUCCESS" if use_profile else "TEMP_PROFILE"
-        except Exception as e:
-            if driver: 
-                try: driver.quit()
-                except: pass
-            raise WebDriverException(f"브라우저 초기화 직후 오류: {e}")
+        # [중요] CDP 명령어로 navigator.webdriver 속성 최종 제거
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": """
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                })
+            """
+        })
+
+        time.sleep(3) # 안정화 대기
+        return driver, "SUCCESS"
             
     except Exception as e:
-        err_msg = str(e).lower()
-        print(f"     [경고] 크롬 구동 실패: {err_msg}")
-        
-        # 프로필 문제라면 프로필 없이 한 번 더 시도
-        if use_profile:
-            print("     [정보] 프로필 없이 크롬 마지막 시도 중...")
-            return setup_chrome_driver(headless=headless, use_profile=False)
-            
-        # 크롬 자체가 불가능하면 해당 세션은 Edge로 고정
-        _CHROME_UNSTABLE = True
-        print("     [비상] Chrome 사용 불가. 해당 세션은 Edge 브라우저로 전환합니다...")
-        return setup_edge_driver(headless=headless, use_profile=True)
+        print(f"     [경고] 크롬 구동 실패: {e}")
+        return None, "FAILED"
 
 def _clean_profile_locks(user_data_dir):
     """Chrome/Edge 프로필 디렉토리 내의 잠금 파일 및 활성 포트 파일을 제거합니다."""
