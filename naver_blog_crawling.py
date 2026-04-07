@@ -64,11 +64,10 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
             driver.minimize_window()
         wait = WebDriverWait(driver, 15)
 
-        # 1. 네이버 검색 직접 접속 (ssc=tab.blog.all 및 필터 파라미터 포함)
-        # nso=so:dd,p:1w (최신순, 1주일)
+        # 1. 네이버 검색 직접 접속 (최신순, 1주일 필터 작동)
         url = f"https://search.naver.com/search.naver?ssc=tab.blog.all&query={query}&sm=tab_opt&nso=so%3Add%2Cp%3A1w"
         driver.get(url)
-        time.sleep(2)
+        time.sleep(3) # 로딩 대기 시간 증가
         yield {"type": "screenshot", "data": capture_screenshot(driver)}
 
         # 2. 결과 추출 (선택자 보강)
@@ -77,13 +76,14 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
         for page in range(1, max_pages + 1):
             yield f"[{page}페이지] 검색 결과 추출 중..."
             
-            # [보강] 다양한 레이아웃(fender, fds 등)에 대응하는 컨테이너 선택자
+            # [긴급 보강] 네이버의 최신 동적 레이아웃 및 기존 VIEW 검색 결과 모두 대응 
             posts_selectors = [
                 "div.GgwGYVzOUr_7Xzt0T0mI", 
                 "div.X91NYa7h9SUdFslwWPfv",
-                "li[role='listitem']", 
+                "li.bx", 
                 "div.view_wrap",
-                "div.bx"
+                "div.api_ani_send",
+                "li[role='listitem']"
             ]
             posts_elems = []
             for selector in posts_selectors:
@@ -92,14 +92,9 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
             
             for i, p in enumerate(posts_elems, 1):
                 try:
-                    # 1. 제목 및 URL
+                    # 1. 제목 및 URL (가장 중요한 정보)
                     title_elem = None
-                    title_selectors = [
-                        "a.P_gXr2Vm5cF3ms_AxCoa", 
-                        "a.xB7GMuBWFEZ36I3LWUaT",
-                        "a.title_link",
-                        "a.api_txt_lines"
-                    ]
+                    title_selectors = ["a.P_gXr2Vm5cF3ms_AxCoa", "a.xB7GMuBWFEZ36I3LWUaT", "a.title_link", "a.api_txt_lines", "a[class*='tit']"]
                     for selector in title_selectors:
                         try:
                             title_elem = p.find_element(By.CSS_SELECTOR, selector)
@@ -108,47 +103,38 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
                     
                     if not title_elem: continue
                     
-                    title = title_elem.text.strip()
+                    # innerText를 사용하여 <mark> 등 하위 태그 텍스트를 유실 없이 합침
+                    title = title_elem.get_attribute("innerText").strip()
                     link = title_elem.get_attribute("href")
                     
-                    # 2. 작성자
+                    # 2. 작성자 정보 추출 보강
                     author = "익명"
-                    author_selectors = [
-                        "span.sds-comps-profile-info-title-text", 
-                        "a.fender-ui_475445f0",
-                        "a.name",
-                        "span.elps1"
-                    ]
+                    author_selectors = ["span.sds-comps-profile-info-title-text", "a.fender-ui_475445f0", "a[class*='name']", "span.elps1", "a.sub_txt"]
                     for selector in author_selectors:
                         try:
                             author_elem = p.find_element(By.CSS_SELECTOR, selector)
-                            author = author_elem.text.strip()
+                            author = author_elem.get_attribute("innerText").strip()
                             if author: break
                         except: continue
                     
-                    # 3. 작성일 (sds-comps-profile-info-subtext)
+                    # 3. 작성일 정보 추출 보강
                     date = "-"
-                    try:
-                        date_elem = p.find_element(By.CSS_SELECTOR, "span.sds-comps-profile-info-subtext")
-                        date = date_elem.text.strip()
-                    except: pass
-
-                    # 4. 본문 내용 스니펫 (fds-ugc-ellipsis2 또는 ellipsis3)
+                    date_selectors = ["span.sds-comps-profile-info-subtext", "span.sub_time", "span[class*='date']", "span.txt_sub"]
+                    for selector in date_selectors:
+                        try:
+                            date_elem = p.find_element(By.CSS_SELECTOR, selector)
+                            date = date_elem.get_attribute("innerText").strip()
+                            if date: break
+                        except: continue
+                    
+                    # 4. 본문 내용 스니펫 추출 보강
                     content_snippet = ""
-                    try:
-                        snippet_selectors = [
-                            "a.J2Adx7q2a75Tzko9CKUg", # [신규]
-                            "a.bhtEUbeVrksNEEpsP4DX", 
-                            "span.sds-comps-text-type-body1", 
-                            ".fds-ugc-ellipsis2", 
-                            ".fds-ugc-ellipsis3"
-                        ]
-                        for selector in snippet_selectors:
-                            try:
-                                content_snippet = p.find_element(By.CSS_SELECTOR, selector).text.strip()
-                                if content_snippet: break
-                            except: continue
-                    except: pass
+                    snippet_selectors = ["a.J2Adx7q2a75Tzko9CKUg", "a.bhtEUbeVrksNEEpsP4DX", "span.sds-comps-text-type-body1", "div.api_txt_lines", "p.dsc_txt", "div[class*='ellipsis']"]
+                    for selector in snippet_selectors:
+                        try:
+                            content_snippet = p.find_element(By.CSS_SELECTOR, selector).get_attribute("innerText").strip()
+                            if content_snippet: break
+                        except: continue
 
                     # 감성 분석 (스니펫 기준)
                     sentiment, reason = "", ""
