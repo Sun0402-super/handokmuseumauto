@@ -76,25 +76,31 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
         for page in range(1, max_pages + 1):
             yield f"[{page}페이지] 검색 결과 추출 중..."
             
-            # [긴급 보강] 네이버의 최신 동적 레이아웃 및 기존 VIEW 검색 결과 모두 대응 
+            # [최신 보강] 네이버의 최신 동적 레이아웃(Fender) 및 기존 VIEW 모두 대응 
             posts_selectors = [
+                "div.api_subject_bx", # 최신 표준 컨테이너
                 "div.GgwGYVzOUr_7Xzt0T0mI", 
-                "div.X91NYa7h9SUdFslwWPfv",
+                "div.X91NYa7h9SUdFslwWPfv", 
                 "li.bx", 
                 "div.view_wrap",
-                "div.api_ani_send",
                 "li[role='listitem']"
             ]
             posts_elems = []
             for selector in posts_selectors:
                 posts_elems = driver.find_elements(By.CSS_SELECTOR, selector)
-                if len(posts_elems) > 3: break # 충분한 결과가 나오면 중단
+                if len(posts_elems) >= 3: 
+                    yield f"✅ {len(posts_elems)}필터링 전 검색 결과 발견 ({selector})"
+                    break 
+            
+            if not posts_elems:
+                yield "⚠️ 검색 결과 목록을 인식하지 못했습니다. 레이아웃이 변경되었을 수 있습니다."
+                continue
             
             for i, p in enumerate(posts_elems, 1):
                 try:
                     # 1. 제목 및 URL (가장 중요한 정보)
                     title_elem = None
-                    title_selectors = ["a.P_gXr2Vm5cF3ms_AxCoa", "a.xB7GMuBWFEZ36I3LWUaT", "a.title_link", "a.api_txt_lines", "a[class*='tit']"]
+                    title_selectors = ["a.T4d_tSMrB8qRjbb9_yER", "a.P_gXr2Vm5cF3ms_AxCoa", "a.xB7GMuBWFEZ36I3LWUaT", "a.title_link", "a.api_txt_lines"]
                     for selector in title_selectors:
                         try:
                             title_elem = p.find_element(By.CSS_SELECTOR, selector)
@@ -109,7 +115,7 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
                     
                     # 2. 작성자 정보 추출 보강
                     author = "익명"
-                    author_selectors = ["span.sds-comps-profile-info-title-text", "a.fender-ui_475445f0", "a[class*='name']", "span.elps1", "a.sub_txt"]
+                    author_selectors = ["a.fender-ui_475445f0", "span.sds-comps-profile-info-title-text", "a[class*='name']", "span.elps1"]
                     for selector in author_selectors:
                         try:
                             author_elem = p.find_element(By.CSS_SELECTOR, selector)
@@ -117,9 +123,11 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
                             if author: break
                         except: continue
                     
+                    yield f"🔍 [{i}] {author}님의 글 분석 중..."
+                    
                     # 3. 작성일 정보 추출 보강
                     date = "-"
-                    date_selectors = ["span.sds-comps-profile-info-subtext", "span.sub_time", "span[class*='date']", "span.txt_sub"]
+                    date_selectors = ["span.sds-comps-profile-info-subtext", "span.sub_time", "span.txt_sub"]
                     for selector in date_selectors:
                         try:
                             date_elem = p.find_element(By.CSS_SELECTOR, selector)
@@ -129,7 +137,7 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
                     
                     # 4. 본문 내용 스니펫 추출 보강
                     content_snippet = ""
-                    snippet_selectors = ["a.J2Adx7q2a75Tzko9CKUg", "a.bhtEUbeVrksNEEpsP4DX", "span.sds-comps-text-type-body1", "div.api_txt_lines", "p.dsc_txt", "div[class*='ellipsis']"]
+                    snippet_selectors = ["a.fds-ugc-ellipsis2", "a.fds-ugc-ellipsis3", "span.sds-comps-text-type-body1", "div.api_txt_lines", "p.dsc_txt"]
                     for selector in snippet_selectors:
                         try:
                             content_snippet = p.find_element(By.CSS_SELECTOR, selector).get_attribute("innerText").strip()
