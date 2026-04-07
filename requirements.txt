@@ -4,5 +4,6 @@ openpyxl
 requests
 beautifulsoup4
 selenium
+selenium-stealth
 google-genai
 python-dotenv
