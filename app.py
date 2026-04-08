@@ -5,6 +5,14 @@ import os
 import time
 import json
 import io
+import sys
+
+# [수정] 배포 환경에서의 로컬 모듈 인식 문제 해결
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.append(current_dir)
+if os.getcwd() not in sys.path:
+    sys.path.append(os.getcwd())
 
 # 설정
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -241,6 +249,7 @@ with st.sidebar:
     
     st.divider()
     show_live_view = st.checkbox("📺 실시간 화면 보기", value=True, help="크롤링 중인 브라우저 화면을 하단에 작게 보여줍니다.")
+    is_headless = st.checkbox("🚫 브라우저 숨기기 (Headless)", value=True, help="체크를 해제하면 브라우저 창이 실제로 나타납니다. (CAPTCHA 해결 시 필요)")
     
     start_clicked = st.button("🚀 크롤링 시작", use_container_width=True)
     
@@ -356,7 +365,7 @@ if start_clicked:
             update_logs("네이버 블로그 수집 중...")
             try:
                 naver_count = 0
-                for item in crawl_naver_blog("한독의약박물관", 1, api_key, use_sentiment, use_summary):
+                for item in crawl_naver_blog("한독의약박물관", 1, api_key, use_sentiment, use_summary, headless=is_headless):
                     if isinstance(item, dict):
                         if item.get("type") == "screenshot":
                             if show_live_view:
@@ -389,7 +398,7 @@ if start_clicked:
             update_logs("다음 검색 수집 중...")
             try:
                 daum_count = 0
-                for item in crawl_daum("한독의약박물관", 1, api_key, use_sentiment, use_summary):
+                for item in crawl_daum("한독의약박물관", 1, api_key, use_sentiment, use_summary, headless=is_headless):
                     if isinstance(item, dict):
                         if item.get("type") == "screenshot":
                             if show_live_view:
@@ -413,7 +422,7 @@ if start_clicked:
             update_logs("카카오맵 리뷰 수집 중...")
             try:
                 kakao_count = 0
-                for item in crawl_kakao_map(api_key, use_sentiment, use_summary):
+                for item in crawl_kakao_map(api_key, use_sentiment, use_summary, headless=is_headless):
                     if isinstance(item, dict):
                         if item.get("type") == "screenshot":
                             if show_live_view:
@@ -433,7 +442,7 @@ if start_clicked:
             update_logs("구글 지도 리뷰 수집 중...")
             try:
                 google_count = 0
-                for item in run_google_maps_crawler(api_key, use_sentiment, use_summary):
+                for item in run_google_maps_crawler(api_key, use_sentiment, use_summary, headless=is_headless):
                     if isinstance(item, dict):
                         if item.get("type") == "screenshot":
                             if show_live_view:
@@ -452,7 +461,7 @@ if start_clicked:
         if do_insta:
             update_logs("인스타그램 수집 시작...")
             try:
-                driver, status = setup_chrome_driver(headless=True, use_profile=True)
+                driver, status = setup_chrome_driver(headless=is_headless, use_profile=True)
                 if not driver:
                     update_logs("❌ 브라우저를 시작할 수 없습니다.")
                 else:
@@ -519,6 +528,9 @@ if start_clicked:
                 positive_df = unified_df[unified_df["긍정/부정(감성분석)"] == "긍정"].copy()
                 positive_df["연번"] = range(1, len(positive_df) + 1) # 연번 재정렬
                 
+                negative_df = unified_df[unified_df["긍정/부정(감성분석)"] == "부정"].copy()
+                negative_df["연번"] = range(1, len(negative_df) + 1) # 연번 재정렬
+                
                 unified_fname = f"{today}_한독의약박물관 관람 후기.xlsx"
                 unified_filepath = os.path.join(target_dir, unified_fname)
                 
@@ -538,11 +550,11 @@ if start_clicked:
                                 ws.column_dimensions[column].width = min(max(max_len + 2, 10), 80)
                     return True
 
-                save_multi_sheets(unified_filepath, [unified_df, positive_df], ['전체 후기', '긍정 후기'])
+                save_multi_sheets(unified_filepath, [unified_df, positive_df, negative_df], ['전체 후기', '긍정 후기', '부정 후기'])
                 
                 # 다운로드 버튼용
                 output = io.BytesIO()
-                save_multi_sheets(output, [unified_df, positive_df], ['전체 후기', '긍정 후기'])
+                save_multi_sheets(output, [unified_df, positive_df, negative_df], ['전체 후기', '긍정 후기', '부정 후기'])
                 
                 st.session_state.excel_data = output.getvalue()
                 st.session_state.filename = unified_fname

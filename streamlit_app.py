@@ -561,6 +561,9 @@ if start_clicked:
                 positive_df = unified_df[unified_df["긍정/부정(감성분석)"] == "긍정"].copy()
                 positive_df["연번"] = range(1, len(positive_df) + 1) # 연번 재정렬
                 
+                negative_df = unified_df[unified_df["긍정/부정(감성분석)"] == "부정"].copy()
+                negative_df["연번"] = range(1, len(negative_df) + 1) # 연번 재정렬
+                
                 unified_fname = f"{today}_한독의약박물관 관람 후기.xlsx"
                 unified_filepath = os.path.join(target_dir, unified_fname)
                 
@@ -580,11 +583,11 @@ if start_clicked:
                                 ws.column_dimensions[column].width = min(max(max_len + 2, 10), 80)
                     return True
 
-                save_multi_sheets(unified_filepath, [unified_df, positive_df], ['전체 후기', '긍정 후기'])
+                save_multi_sheets(unified_filepath, [unified_df, positive_df, negative_df], ['전체 후기', '긍정 후기', '부정 후기'])
                 
                 # 다운로드 버튼용
                 output = io.BytesIO()
-                save_multi_sheets(output, [unified_df, positive_df], ['전체 후기', '긍정 후기'])
+                save_multi_sheets(output, [unified_df, positive_df, negative_df], ['전체 후기', '긍정 후기', '부정 후기'])
                 
                 st.session_state.excel_data = output.getvalue()
                 st.session_state.filename = unified_fname
