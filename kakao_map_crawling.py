@@ -7,7 +7,7 @@ from driver_utils import setup_chrome_driver, capture_screenshot
 from filter_utils import parse_date_to_string
 from sentiment_utils import analyze_sentiment
 
-def crawl_kakao_map(api_key=None, use_sentiment=False, use_summary=True):
+def crawl_kakao_map(api_key=None, use_sentiment=False, use_summary=True, headless=True):
     """
     카카오맵(다음 지도) 리뷰를 Chrome 브라우저로 크롤링하는 제너레이터입니다.
     대상: 한독의약박물관 (ID: 10949300)
@@ -15,12 +15,14 @@ def crawl_kakao_map(api_key=None, use_sentiment=False, use_summary=True):
     driver = None
     try:
         yield "Chrome 브라우저를 시작합니다..."
-        driver, status = setup_chrome_driver(headless=True)
+        driver, status = setup_chrome_driver(headless=headless)
         if not driver:
             yield "❌ 크롬 브라우저를 시작할 수 없습니다."
             return
-        # [수정] 사용자의 요청에 따라 브라우저 창을 최소화합니다.
-        driver.minimize_window()
+        
+        # [수정] Headless 모드 시 창 조작은 생략합니다. (브라우저 충돌 방지)
+        # if headless:
+        #     driver.minimize_window()
         wait = WebDriverWait(driver, 15)
 
         # 1. 카카오맵 리뷰 페이지 직접 접속

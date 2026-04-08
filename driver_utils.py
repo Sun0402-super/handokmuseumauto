@@ -49,6 +49,9 @@ def setup_chrome_driver(headless=True, use_profile=True):
     else:
         if headless:
             options.add_argument('--headless=new')
+        else:
+            # [추가] 캡차 대응 및 가시성 확보를 위해 창을 최대화하여 시작
+            options.add_argument('--start-maximized')
             
     # 공동 옵션 (봇 탐지 회피 및 폰트 렌더링 최적화)
     options.add_argument('--window-size=1920,1080')
@@ -95,15 +98,36 @@ def setup_chrome_driver(headless=True, use_profile=True):
                 fix_hairline=True,
             )
         
-        # [중요] CDP 명령어로 navigator.webdriver 속성 최종 제거
+        # [중요] CDP 명령어로 자동화 흔적 및 시스템 지문 최종 우회
+        # 1. navigator.webdriver 속성 제거
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
             "source": """
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined
-                })
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                window.chrome = { runtime: {} };
+                Object.defineProperty(navigator, 'languages', { get: () => ['ko-KR', 'ko', 'en-US', 'en'] });
+                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
             """
         })
+        
+        # 2. 봇 탐지 시 주로 체크하는 하드웨어 가속 및 플러그인 정보 노출 방지
+        driver.execute_cdp_cmd("Network.setUserAgentOverride", {
+            "userAgent": options.to_capabilities()['goog:chromeOptions']['args'][-1].split('=')[-1]
+        })
 
+        # [수정] CDP를 이용한 뷰포트 크기 강제 고정 (Headless 모드 잘림 방지)
+        driver.execute_cdp_cmd('Emulation.setDeviceMetricsOverride', {
+            'width': 1920,
+            'height': 1080,
+            'deviceScaleFactor': 1,
+            'mobile': False
+        })
+
+        # [수정] 창 크기 명시적 재설정 (안정화 대기 후 적용)
+        try:
+            driver.set_window_size(1920, 1080)
+            time.sleep(1)
+        except: pass
+        
         time.sleep(3) # 안정화 대기
         return driver, "SUCCESS"
             

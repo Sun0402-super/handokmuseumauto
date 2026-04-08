@@ -7,26 +7,28 @@ from driver_utils import setup_chrome_driver, capture_screenshot
 from filter_utils import parse_date_to_string
 from sentiment_utils import analyze_sentiment
 
-def crawl_daum(query, max_pages=1, api_key=None, use_sentiment=False, use_summary=True):
+def crawl_daum(query, max_pages=1, api_key=None, use_sentiment=False, use_summary=True, headless=True):
     """
     다음 검색결과(통합웹/블로그)를 Chrome 브라우저로 크롤링하는 제너레이터입니다.
     """
     driver = None
     try:
         yield "Chrome 브라우저를 시작합니다..."
-        driver, status = setup_chrome_driver(headless=True)
+        driver, status = setup_chrome_driver(headless=headless)
         if not driver:
             yield "❌ 크롬 브라우저를 시작할 수 없습니다."
             return
-        # [수정] 사용자의 요청에 따라 브라우저 창을 최소화합니다.
-        driver.minimize_window()
+        
+        # [수정] Headless 모드 시 창 조작은 생략합니다. (브라우저 충돌 방지)
+        # if headless:
+        #     driver.minimize_window()
         wait = WebDriverWait(driver, 15)
 
         # 1. 다음 검색 직접 접속 (최신순, 1주일 필터 파라미터 포함)
         # sort=recency (최신순), period=w (1주일)
         url = f"https://search.daum.net/search?w=fusion&q={query}&sort=recency&period=w"
         driver.get(url)
-        time.sleep(2)
+        time.sleep(4) # 레이아웃 안정화를 위해 대기 시간 증가
         yield {"type": "screenshot", "data": capture_screenshot(driver)}
 
         results_count = 0

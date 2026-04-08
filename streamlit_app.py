@@ -498,7 +498,8 @@ if start_clicked:
                 if not driver:
                     update_logs("❌ 브라우저를 시작할 수 없습니다.")
                 else:
-                    driver.minimize_window()
+                    # [수정] Headless 모드 시 창 조작은 생략합니다.
+                    # driver.minimize_window()
                     if instagram_login(driver, insta_id, insta_pw):
                         insta_count = 0
                         # 5-1. 해시태그 수집 (#한독의약박물관)

@@ -59,15 +59,15 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
             yield "❌ 크롬 브라우저를 시작할 수 없습니다."
             return
         
-        # [수정] Headless 모드일 때만 브라우저 창을 최소화합니다.
-        if headless:
-            driver.minimize_window()
+        # [수정] Headless 모드 시 창 조작은 생략합니다. (브라우저 충돌 방지)
+        # if headless:
+        #     driver.minimize_window()
         wait = WebDriverWait(driver, 15)
 
-        # 1. 네이버 검색 직접 접속 (최신순, 1주일 필터 작동)
+        # 1. 네이버 검색 직접 접속 (사용자가 제공한 URL 형식 사용)
         url = f"https://search.naver.com/search.naver?ssc=tab.blog.all&query={query}&sm=tab_opt&nso=so%3Add%2Cp%3A1w"
         driver.get(url)
-        time.sleep(3) # 로딩 대기 시간 증가
+        time.sleep(5) # 레이아웃 안정화를 위해 대기 시간 증가
         yield {"type": "screenshot", "data": capture_screenshot(driver)}
 
         # 2. 결과 추출 (선택자 보강)
@@ -78,18 +78,15 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
             
             # [최신 보강] 네이버의 최신 동적 레이아웃(Fender) 및 기존 VIEW 모두 대응 
             posts_selectors = [
-                "div.api_subject_bx", # 최신 표준 컨테이너
-                "div.GgwGYVzOUr_7Xzt0T0mI", 
-                "div.X91NYa7h9SUdFslwWPfv", 
-                "li.bx", 
-                "div.view_wrap",
-                "li[role='listitem']"
+                "div.api_subject_bx", # 최신 Fender 레이아웃 컨테이너
+                "li.bx",              # 기존 레이아웃
+                "div.view_wrap"
             ]
             posts_elems = []
             for selector in posts_selectors:
                 posts_elems = driver.find_elements(By.CSS_SELECTOR, selector)
-                if len(posts_elems) >= 3: 
-                    yield f"✅ {len(posts_elems)}필터링 전 검색 결과 발견 ({selector})"
+                if len(posts_elems) >= 1: 
+                    yield f"✅ {len(posts_elems)}건의 검색 결과 발견 ({selector})"
                     break 
             
             if not posts_elems:
@@ -98,9 +95,13 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
             
             for i, p in enumerate(posts_elems, 1):
                 try:
-                    # 1. 제목 및 URL (가장 중요한 정보)
+                    # 1. 제목 및 URL
                     title_elem = None
-                    title_selectors = ["a.T4d_tSMrB8qRjbb9_yER", "a.P_gXr2Vm5cF3ms_AxCoa", "a.xB7GMuBWFEZ36I3LWUaT", "a.title_link", "a.api_txt_lines"]
+                    title_selectors = [
+                        "a.T4d_tSMrB8qRjbb9_yER", # Fender 제목
+                        "a.title_link",           # 기존 제목
+                        "a.api_txt_lines"
+                    ]
                     for selector in title_selectors:
                         try:
                             title_elem = p.find_element(By.CSS_SELECTOR, selector)
@@ -113,9 +114,14 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
                     title = title_elem.get_attribute("innerText").strip()
                     link = title_elem.get_attribute("href")
                     
-                    # 2. 작성자 정보 추출 보강
+                    # 2. 작성자 정보 추출 (사용자 제공 HTML 기반)
                     author = "익명"
-                    author_selectors = ["a.fender-ui_475445f0", "span.sds-comps-profile-info-title-text", "a[class*='name']", "span.elps1"]
+                    author_selectors = [
+                        "span.sds-comps-profile-info-title-text", # Fender 작성자 (가장 정확)
+                        "a.fender-ui_475445f0",                   # Fender 작성자 프로필 링크
+                        "a.sub_txt.sub_name",                     # 기존 작성자
+                        "span.elps1"
+                    ]
                     for selector in author_selectors:
                         try:
                             author_elem = p.find_element(By.CSS_SELECTOR, selector)
@@ -125,19 +131,29 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
                     
                     yield f"🔍 [{i}] {author}님의 글 분석 중..."
                     
-                    # 3. 작성일 정보 추출 보강
-                    date = "-"
-                    date_selectors = ["span.sds-comps-profile-info-subtext", "span.sub_time", "span.txt_sub"]
+                    # 3. 작성일 정보 추출 (사용자 제공 HTML 기반)
+                    date_raw = "-"
+                    date_selectors = [
+                        "span.sds-comps-profile-info-subtext", # Fender 날짜 (예: 2일 전)
+                        "span.sub_time",                       # 기존 날짜
+                        "span.txt_sub"
+                    ]
                     for selector in date_selectors:
                         try:
                             date_elem = p.find_element(By.CSS_SELECTOR, selector)
-                            date = date_elem.get_attribute("innerText").strip()
-                            if date: break
+                            date_raw = date_elem.get_attribute("innerText").strip()
+                            if date_raw: break
                         except: continue
                     
-                    # 4. 본문 내용 스니펫 추출 보강
+                    # 4. 본문 요약 내용 추출 (사용자 제공 HTML 기반)
                     content_snippet = ""
-                    snippet_selectors = ["a.fds-ugc-ellipsis2", "a.fds-ugc-ellipsis3", "span.sds-comps-text-type-body1", "div.api_txt_lines", "p.dsc_txt"]
+                    snippet_selectors = [
+                        "a.fds-ugc-ellipsis2",           # Fender 2줄 요약
+                        "a.fds-ugc-ellipsis3",           # Fender 3줄 요약
+                        "span.sds-comps-text-type-body1", # Fender 요약 텍스트
+                        "div.api_txt_lines.dsc_txt",     # 기존 요약
+                        "p.dsc_txt"
+                    ]
                     for selector in snippet_selectors:
                         try:
                             content_snippet = p.find_element(By.CSS_SELECTOR, selector).get_attribute("innerText").strip()
@@ -149,11 +165,12 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
                     if use_sentiment and content_snippet:
                         sentiment, reason = analyze_sentiment(content_snippet, api_key, use_summary=use_summary)
 
+                    # 사용자 요청에 맞춘 결과 딕셔너리 구성
                     yield {
                         "출처": "네이버 블로그",
                         "작성자": author,
                         "제목": title,
-                        "작성일": parse_date_to_string(date),
+                        "작성일": parse_date_to_string(date_raw),
                         "URL": link,
                         "본문내용": content_snippet,
                         "감성분석": sentiment,
