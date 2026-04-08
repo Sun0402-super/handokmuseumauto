@@ -18,9 +18,11 @@ def run_google_maps_crawler(api_key=None, use_sentiment=False, use_summary=True,
     
     # [변경] 로컬(Windows) 환경에서는 캡차 대응을 위해 헤드리스 모드를 기본적으로 해제
     import sys
+    yield f"     [시스템] 운영체제: {sys.platform}, 현재 모드: {'브라우저 숨김' if headless else '브라우저 표시'}"
+    
     if sys.platform == 'win32' and headless:
         headless = False
-        yield "⚠️ 로컬 환경 감지: 캡차 대응을 위해 브라우저 창을 활성화합니다."
+        yield "⚠️ 로컬 환경(Windows)이 감지되어 캡차 대응을 위해 '브라우저 표시' 모드로 전환합니다."
 
     try:
         yield "스텔스 모드로 브라우저를 시작합니다..."
@@ -33,20 +35,34 @@ def run_google_maps_crawler(api_key=None, use_sentiment=False, use_summary=True,
         wait = WebDriverWait(driver, 20)
         
         # 1. URL 접속
-        yield f"구글 지도로 직접 접속합니다... "
+        yield f"구글 지도로 직접 접속합니다..."
         driver.get(target_url)
         time.sleep(random.uniform(5.0, 7.0))
         
         # [추가] 로봇 확인(CAPTCHA) 감지
-        if "google.com/sorry" in driver.current_url or "robot" in driver.page_source.lower():
-            yield "🚨 [검증 필요] 구글에서 로봇 확인을 요청하고 있습니다."
+        # 여러 패턴(URL, 페이지 제목, 특정 텍스트)으로 감지
+        is_captcha = "google.com/sorry" in driver.current_url or \
+                     "robot" in driver.page_source.lower() or \
+                     "비정상적인 트래픽" in driver.page_source
+                     
+        if is_captcha:
+            yield "🚨 [검증 필요] 구글에서 로봇 확인(CAPTCHA)을 요청하고 있습니다."
             if not headless:
-                yield "💡 화면에 뜬 브라우저 창에서 직접 '로봇이 아닙니다'를 클릭해 주세요. (60초 대기 시작)"
-                time.sleep(60)
-                yield "   - 대기 완료. 수집을 계속 진행합니다."
-                time.sleep(3)
+                yield "💡 화면에 뜬 브라우저 창에서 직접 '로봇이 아닙니다'를 클릭해 주세요. (60초 대기)"
+                # 캡차 해결 여부를 실시간으로 모니터링 (최대 60초)
+                solved = False
+                for _ in range(12): # 5초 * 12 = 60초
+                    time.sleep(5)
+                    if "google.com/sorry" not in driver.current_url and "robot" not in driver.page_source.lower():
+                        solved = True
+                        break
+                
+                if solved:
+                    yield "   - 캡차 해결 확인. 수집을 계속합니다."
+                else:
+                    yield "   - 시간 초과: 캡차가 해결되지 않았습니다. 수집이 중지될 수 있습니다."
             else:
-                yield "❌ 헤드리스 모드라 캡차를 해결할 수 없습니다. 잠시 후 검색 옵션에서 '브라우저 숨기기'를 해제하고 다시 시도해 주세요."
+                yield "❌ 현재 '브라우저 숨기기' 모드입니다. 캡차를 해결하려면 수집기 왼쪽 설정에서 '브라우저 숨기기'를 해제하고 다시 실행해 주세요."
                 return
 
         yield {"type": "screenshot", "data": capture_screenshot(driver)}
