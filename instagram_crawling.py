@@ -1,5 +1,6 @@
 import time
 import random
+import sys
 from datetime import datetime, timedelta, timezone
 from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
@@ -27,41 +28,54 @@ def handle_insta_popups(driver):
 def instagram_login(driver, username, password):
     """
     인스타그램 로그인 처리 (자동 로그인 + 수동 대기 폴백)
+    배포 환경(Linux)에서는 수동 대기가 불가능하므로 자동 로그인만 시도합니다.
     """
+    is_cloud = sys.platform != 'win32'
+    print(f"     [로그인] {sys.platform} 환경 확인 (Cloud 여부: {is_cloud})")
+    
     print("     [로그인] 인스타그램 메인 페이지 접속 중...")
     driver.get("https://www.instagram.com/")
     wait = WebDriverWait(driver, 15)
     
+    # 0. 비정상 접근 차단 확인
+    if "인스타그램 사용이 일시적으로 제한되었습니다" in driver.page_source or "Try again later" in driver.page_source:
+        print("     [오류] 인스타그램으로부터 접근이 차단되었습니다. (IP 차단 가능성)")
+        return False
+
     # 1. 이미 로그인되어 있는지 확인
     try:
         wait.until(EC.presence_of_element_located((
             By.XPATH, "//*[@aria-label='홈' or @aria-label='Home'] | //*[@aria-label='검색' or @aria-label='Search'] | //a[contains(@href, '/direct/inbox/')]"
         )))
         print("     [로그인] 이미 로그인되어 있습니다.")
-        handle_insta_popups(driver) # 로그인되어 있어도 뜨는 팝업 처리
+        handle_insta_popups(driver) 
         return True
     except:
-        print("     [로그인] 로그인 대기 중...")
+        print("     [로그인] 로그인 상태가 아님을 확인했습니다.")
 
     # 2. 자동 로그인 시도 (아이디/비번이 있는 경우)
     if username and password:
         try:
-            # 입력창 대기 (여러 선택자 시도)
+            # 입력창 대기
             user_input = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@name='username'] | //input[@aria-label='Phone number, username, or email']")))
             pass_input = driver.find_element(By.XPATH, "//input[@name='password'] | //input[@aria-label='Password']")
             
-            # 값 입력
             user_input.send_keys(username)
             pass_input.send_keys(password)
             time.sleep(1)
             
-            # 로그인 버튼 클릭
             login_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
             login_btn.click()
-            print("     [로그인] 로그인 정보를 입력했습니다. 인증 대기 중...")
-            time.sleep(5)
+            print("     [로그인] 로그인 정보를 입력했습니다. 인증 확인 중...")
+            time.sleep(7) # 조금 더 충분히 대기
             
-            # 정보 저장 팝업 등 처리
+            # 2단계 인증/보안 코드 확인창이 떴는지 체크
+            if "checkpoint" in driver.current_url:
+                print("     [주의] 인스타그램 보안 확인(2단계 인증 등)이 필요합니다.")
+                if is_cloud:
+                    print("     [오류] 클라우드 서버에서는 보안 인증을 직접 수행할 수 없습니다.")
+                    return False
+
             handle_insta_popups(driver)
             
             # 최종 로그인 성공 확인
@@ -72,25 +86,27 @@ def instagram_login(driver, username, password):
             return True
             
         except Exception as e:
-            print(f"     [로그인] 자동 로그인 중 오류 발생 (수동 대기로 전환): {e}")
+            print(f"     [로그인] 자동 로그인 실패: {e}")
 
     # 3. 수동 로그인 대기 (아이디/비번이 없거나 자동 로그인이 실패한 경우)
+    if is_cloud:
+        print("     [알림] 클라우드 환경에서는 수동 로그인이 지원되지 않습니다. (로컬 실행 권장)")
+        return False
+
     print("\n\n**************************************************************")
-    print("     [중요] 열려있는 크롬 브라우저 창에서 직접 인스타그램에 로그인해주세요!!")
-    print("     로그인이 완료될 때까지 대기합니다. (제한시간 5분)")
-    print("     2단계 인증이나 본인 확인이 필요한 경우 직접 진행해 주세요.")
+    print("     [중요] 열려있는 브라우저 창에서 직접 인스타그램에 로그인해주세요!!")
+    print("     2단계 인증이 필요한 경우 직접 진행해 주세요. (5분 대기)")
     print("**************************************************************\n\n")
     
     try:
-        # 사용자가 수동 로그인할 때까지 대기 (최대 300초 = 5분)
         WebDriverWait(driver, 300).until(
             EC.presence_of_element_located((By.XPATH, "//*[@aria-label='홈' or @aria-label='Home'] | //*[@aria-label='검색' or @aria-label='Search'] | //a[contains(@href, '/direct/inbox/')]"))
         )
-        print("     [로그인] 로그인 확인 완료.")
-        time.sleep(5)
+        print("     [로그인] 수동 로그인 완료 확인.")
+        time.sleep(3)
         return True
     except:
-        print("     [오류] 제한 시간 내에 로그인이 확인되지 않았습니다.")
+        print("     [오류] 제한 시간 내에 로그인이 완료되지 않았습니다.")
         return False
 
 def _extract_post_data(driver, soup, author_name_filter=None):
@@ -154,6 +170,12 @@ def crawl_hashtag(driver, hashtag, max_posts=10, api_key=None, use_sentiment=Fal
     driver.get(url)
     time.sleep(random.uniform(5, 7))
     
+    # [추가] 로그인 페이지 리디렉션 확인
+    if "accounts/login" in driver.current_url:
+        yield "🚨 [로그인 필요] 인스타그램이 해시태그 검색을 위해 로그인을 요청합니다."
+        yield "💡 로컬 환경이라면 수집 설정을 통해 로그인을 완료한 뒤 다시 시도해 주세요."
+        return
+
     try:
         # '최근 게시물' 탭 찾아서 클릭 (해시태그 화면 대응)
         print("     [인스타그램] 해시태그 '최근' 탭으로 전환 중...")
@@ -175,7 +197,8 @@ def crawl_location(driver, location_id="109120676658159", max_posts=10, api_key=
     time.sleep(random.uniform(5, 7))
     
     if "accounts/login" in driver.current_url:
-        print("     [경고] 인스타그램이 로그인 페이지로 리디렉션했습니다.")
+        yield "🚨 [로그인 필요] 인스타그램이 장소 검색을 위해 로그인을 요청합니다."
+        yield "💡 이미 로그인했는데도 이 메시지가 보인다면 계정이 일시적으로 제한된 상태일 수 있습니다."
         return
 
     try:
