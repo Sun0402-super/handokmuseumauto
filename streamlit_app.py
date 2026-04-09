@@ -48,7 +48,7 @@ try:
     from daum_crawling import crawl_daum
     from kakao_map_crawling import crawl_kakao_map
     from google_map_crawling import run_google_maps_crawler
-    from instagram_crawling import instagram_login, crawl_hashtag, crawl_location
+    from instagram_crawling import instagram_login, crawl_hashtag, crawl_location, crawl_tagged_posts
     from driver_utils import setup_chrome_driver, clear_chrome_cache, kill_chrome_processes
     from sentiment_utils import analyze_sentiment
     from filter_utils import is_relevant_by_keywords
@@ -494,13 +494,38 @@ if start_clicked:
         if do_insta:
             update_logs("인스타그램 수집 시작...")
             try:
-                driver, status = setup_chrome_driver(headless=True, use_profile=True)
+                # [수정] 사용자의 '브라우저 숨기기' 설정을 존중하며, 윈도우에서는 캡차 대응을 위해 가급적 창을 띄웁니다.
+                is_headless = True
+                if sys.platform == 'win32':
+                    is_headless = False # 인스타그램은 2단계 인증이 잦으므로 로컬에선 창을 띄우는 것이 유리
+                
+                driver, status = setup_chrome_driver(headless=is_headless, use_profile=True)
                 if not driver:
                     update_logs("❌ 브라우저를 시작할 수 없습니다.")
                 else:
-                    # [수정] Headless 모드 시 창 조작은 생략합니다.
-                    # driver.minimize_window()
-                    if instagram_login(driver, insta_id, insta_pw):
+                    # [수정] instagram_login이 제너레이터로 변경됨에 따라 루프로 수용
+                    login_gen = instagram_login(driver, insta_id, insta_pw)
+                    login_success = False
+                    
+                    try:
+                        while True:
+                            try:
+                                item = next(login_gen)
+                                if isinstance(item, dict):
+                                    if item.get("type") == "screenshot":
+                                        if show_live_view:
+                                            live_view_placeholder.image(item["data"], caption="인스타그램 로그인/인증 화면", use_container_width=True)
+                                        continue
+                                else:
+                                    update_logs(item)
+                            except StopIteration as e:
+                                login_success = e.value
+                                break
+                    except Exception as le:
+                        update_logs(f"⚠️ 로그인 시도 중 오류: {le}")
+                        login_success = False
+
+                    if login_success:
                         insta_count = 0
                         # 5-1. 해시태그 수집 (#한독의약박물관)
                         update_logs("📸 해시태그(#한독의약박물관) 수집 중...")
@@ -518,9 +543,23 @@ if start_clicked:
                             else:
                                 update_logs(item)
                         
-                        # 5-2. 장소 수집 (한독의약박물관 Location ID)
+                        # 5-2. 공식 계정(@handokmuseum) 태그됨 수집
+                        update_logs("🏷️ 공식 계정(@handokmuseum) '태그됨' 수집 중...")
+                        for item in crawl_tagged_posts(driver, "handokmuseum", insta_max_posts, api_key, use_sentiment, use_summary):
+                            if isinstance(item, dict):
+                                if item.get("type") == "screenshot":
+                                    if show_live_view:
+                                        live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", use_container_width=True)
+                                    continue
+                                if not any(r.get('URL') == item.get('URL') for r in st.session_state.results):
+                                    st.session_state.results.append(item)
+                                    insta_count += 1
+                                    update_ui()
+                            else:
+                                update_logs(item)
+
+                        # 5-3. 장소 수집 (한독의약박물관 Location ID)
                         update_logs("📍 장소(Location) 기반 수집 중...")
-                        # 109120676658159: 한독의약박물관 공식 장소 ID
                         for item in crawl_location(driver, "109120676658159", insta_max_posts, api_key, use_sentiment, use_summary):
                             if isinstance(item, dict):
                                 if item.get("type") == "screenshot":

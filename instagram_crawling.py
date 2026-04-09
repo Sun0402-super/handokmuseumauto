@@ -31,15 +31,16 @@ def instagram_login(driver, username, password):
     배포 환경(Linux)에서는 수동 대기가 불가능하므로 자동 로그인만 시도합니다.
     """
     is_cloud = sys.platform != 'win32'
-    print(f"     [로그인] {sys.platform} 환경 확인 (Cloud 여부: {is_cloud})")
+    yield f"     [로그인] {sys.platform} 환경 확인 (Cloud 여부: {is_cloud})"
     
-    print("     [로그인] 인스타그램 메인 페이지 접속 중...")
+    yield "     [로그인] 인스타그램 메인 페이지 접속 중..."
     driver.get("https://www.instagram.com/")
+    yield {"type": "screenshot", "data": capture_screenshot(driver)}
     wait = WebDriverWait(driver, 15)
     
     # 0. 비정상 접근 차단 확인
     if "인스타그램 사용이 일시적으로 제한되었습니다" in driver.page_source or "Try again later" in driver.page_source:
-        print("     [오류] 인스타그램으로부터 접근이 차단되었습니다. (IP 차단 가능성)")
+        yield "     [오류] 인스타그램으로부터 접근이 차단되었습니다. (IP 차단 가능성)"
         return False
 
     # 1. 이미 로그인되어 있는지 확인
@@ -47,11 +48,11 @@ def instagram_login(driver, username, password):
         wait.until(EC.presence_of_element_located((
             By.XPATH, "//*[@aria-label='홈' or @aria-label='Home'] | //*[@aria-label='검색' or @aria-label='Search'] | //a[contains(@href, '/direct/inbox/')]"
         )))
-        print("     [로그인] 이미 로그인되어 있습니다.")
+        yield "     [로그인] 이미 로그인되어 있습니다."
         handle_insta_popups(driver) 
         return True
     except:
-        print("     [로그인] 로그인 상태가 아님을 확인했습니다.")
+        yield "     [로그인] 로그인 상태가 아님을 확인했습니다."
 
     # 2. 자동 로그인 시도 (아이디/비번이 있는 경우)
     if username and password:
@@ -66,48 +67,61 @@ def instagram_login(driver, username, password):
             
             login_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
             login_btn.click()
-            print("     [로그인] 로그인 정보를 입력했습니다. 인증 확인 중...")
-            time.sleep(7) # 조금 더 충분히 대기
+            yield "     [로그인] 로그인 정보를 입력했습니다. 인증 확인 중..."
+            time.sleep(7) 
+            yield {"type": "screenshot", "data": capture_screenshot(driver)}
             
             # 2단계 인증/보안 코드 확인창이 떴는지 체크
             if "checkpoint" in driver.current_url:
-                print("     [주의] 인스타그램 보안 확인(2단계 인증 등)이 필요합니다.")
+                yield "     [주의] 인스타그램 보안 확인(2단계 인증 등)이 필요합니다."
                 if is_cloud:
-                    print("     [오류] 클라우드 서버에서는 보안 인증을 직접 수행할 수 없습니다.")
+                    yield "     [오류] 클라우드 서버에서는 보안 인증을 직접 수행할 수 없습니다."
                     return False
 
             handle_insta_popups(driver)
             
             # 최종 로그인 성공 확인
-            wait.until(EC.presence_of_element_located((
-                By.XPATH, "//*[@aria-label='홈' or @aria-label='Home'] | //*[@aria-label='검색' or @aria-label='Search']"
-            )))
-            print("     [로그인] 자동 로그인 성공!")
-            return True
+            try:
+                wait.until(EC.presence_of_element_located((
+                    By.XPATH, "//*[@aria-label='홈' or @aria-label='Home'] | //*[@aria-label='검색' or @aria-label='Search']"
+                )))
+                yield "     [로그인] 자동 로그인 성공!"
+                return True
+            except:
+                pass
             
         except Exception as e:
-            print(f"     [로그인] 자동 로그인 실패: {e}")
+            yield f"     [로그인] 자동 로그인 실패: {e}"
 
     # 3. 수동 로그인 대기 (아이디/비번이 없거나 자동 로그인이 실패한 경우)
     if is_cloud:
-        print("     [알림] 클라우드 환경에서는 수동 로그인이 지원되지 않습니다. (로컬 실행 권장)")
+        yield "     [알림] 클라우드 환경에서는 수동 로그인이 지원되지 않습니다. (로컬 실행 권장)"
         return False
 
-    print("\n\n**************************************************************")
-    print("     [중요] 열려있는 브라우저 창에서 직접 인스타그램에 로그인해주세요!!")
-    print("     2단계 인증이 필요한 경우 직접 진행해 주세요. (5분 대기)")
-    print("**************************************************************\n\n")
+    yield "**************************************************************"
+    yield "     [중요] 브라우저 창에서 직접 인스타그램에 로그인해 주세요!!"
+    yield "     실시간 화면(Live View)을 보면서 인증을 완료할 수 있습니다."
+    yield "**************************************************************"
     
-    try:
-        WebDriverWait(driver, 300).until(
-            EC.presence_of_element_located((By.XPATH, "//*[@aria-label='홈' or @aria-label='Home'] | //*[@aria-label='검색' or @aria-label='Search'] | //a[contains(@href, '/direct/inbox/')]"))
-        )
-        print("     [로그인] 수동 로그인 완료 확인.")
-        time.sleep(3)
-        return True
-    except:
-        print("     [오류] 제한 시간 내에 로그인이 완료되지 않았습니다.")
-        return False
+    # 5분간 5초 주기로 로그인 상태 체크하며 스크린샷 갱신
+    for i in range(60): # 5 * 60 = 300초
+        try:
+            # 로그인 성공 요소가 있는지 확인 (짧은 대기)
+            WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.XPATH, "//*[@aria-label='홈' or @aria-label='Home'] | //*[@aria-label='검색' or @aria-label='Search'] | //a[contains(@href, '/direct/inbox/')]"))
+            )
+            yield "     [로그인] 수동 로그인 완료 확인."
+            yield {"type": "screenshot", "data": capture_screenshot(driver)}
+            time.sleep(3)
+            return True
+        except:
+            # 아직 로그인 중이면 스크린샷만 업데이트
+            yield {"type": "screenshot", "data": capture_screenshot(driver)}
+            if i % 6 == 0: # 30초마다 남은 시간 알림
+                yield f"     [로그인] 대기 중... ({300 - i*5}초 남음)"
+    
+    yield "     [오류] 제한 시간 내에 로그인이 완료되지 않았습니다."
+    return False
 
 def _extract_post_data(driver, soup, author_name_filter=None):
     """게시물 페이지에서 데이터를 추출하는 내부 헬퍼 함수"""
@@ -188,6 +202,21 @@ def crawl_hashtag(driver, hashtag, max_posts=10, api_key=None, use_sentiment=Fal
     except Exception as e:
         print(f"     [주의] 해시태그 '최근' 탭 전환 실패 (계속 진행): {e}")
 
+    yield from _collect_posts(driver, max_posts, api_key, use_sentiment, use_summary)
+
+def crawl_tagged_posts(driver, handle="handokmuseum", max_posts=10, api_key=None, use_sentiment=False, use_summary=True):
+    """공식 계정(@handokmuseum)의 '태그됨' 탭에서 게시물 수집"""
+    url = f"https://www.instagram.com/{handle}/tagged/"
+    driver.get(url)
+    time.sleep(random.uniform(5, 7))
+    
+    if "accounts/login" in driver.current_url:
+        yield f"🚨 [로그인 필요] @{handle}의 태그된 게시물 접근을 위해 로그인이 필요합니다."
+        return
+
+    yield f"     [인스타그램] @{handle} 공식 계정 '태그됨' 탭 분석 중..."
+    yield {"type": "screenshot", "data": capture_screenshot(driver)}
+    
     yield from _collect_posts(driver, max_posts, api_key, use_sentiment, use_summary)
 
 def crawl_location(driver, location_id="109120676658159", max_posts=10, api_key=None, use_sentiment=False, use_summary=True):
