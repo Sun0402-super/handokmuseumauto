@@ -13,16 +13,16 @@ from filter_utils import parse_date_to_string
 
 def run_google_maps_crawler(api_key=None, use_sentiment=False, use_summary=True, headless=True):
     """구글 지도 리뷰 크롤링 (Google Maps 서비스 직접 접속 방식)"""
-    target_url = "https://www.google.com/maps/place/%ED%95%9C%EB%8F%85%EC%9D%98%EC%95%BD%EB%B0%95%EB%AC%BC%EA%B4%80/data=!4m8!3m7!1s0x3564c801b414c031:0xae2627b4bc74c1f6!8m2!3d36.9705606!4d127.4652168!9m1!1b1!16s%2Fg%2F1trqf1gr?entry=ttu&g_ep=EgoyMDI2MDQwNi4wIKXMDSoASAFQAw%3D%3D"
+    target_url = "https://www.google.com/maps/place/%ED%95%9C%EB%8F%85%EC%9D%98%EC%95%BD%EB%B0%95%EB%AC%BC%EA%B4%80/data=!4m8!3m7!1s0x3564c801b414c031:0xae2627b4bc74c1f6!8m2!3d36.9705606!4d127.4652168!9m1!1b1!16s%2Fg%2F1trqf1gr"
     driver = None
     
-    # [변경] 로컬(Windows) 환경에서는 캡차 대응을 위해 헤드리스 모드를 기본적으로 해제
+    # [시스템] 운영체제 및 모드 확인
     import sys
     yield f"     [시스템] 운영체제: {sys.platform}, 현재 모드: {'브라우저 숨김' if headless else '브라우저 표시'}"
     
     if sys.platform == 'win32' and headless:
         headless = False
-        yield "⚠️ 로컬 환경(Windows)이 감지되어 캡차 대응을 위해 '브라우저 표시' 모드로 전환합니다."
+        yield "⚠️ 로컬 환경(Windows)이 감지되어 캡차 응답성을 위해 '브라우저 표시' 모드로 강제 전환합니다."
 
     try:
         yield "스텔스 모드로 브라우저를 시작합니다..."
@@ -31,19 +31,26 @@ def run_google_maps_crawler(api_key=None, use_sentiment=False, use_summary=True,
             yield "❌ 크롬 브라우저를 시작할 수 없습니다."
             return
             
-        driver.set_page_load_timeout(40)
-        wait = WebDriverWait(driver, 20)
+        driver.set_page_load_timeout(120) # 기존 40초에서 120초로 대폭 연장
+        wait = WebDriverWait(driver, 30)
         
         # 1. URL 접속
         yield f"구글 지도로 직접 접속합니다..."
-        driver.get(target_url)
-        time.sleep(random.uniform(5.0, 7.0))
-        
+        try:
+            driver.get(target_url)
+        except Exception as te:
+            # 타임아웃이 발생해도 DOM이 일부 로드되었을 수 있으므로 계속 시도
+            yield f"     [주의] 페이지 로딩 시간 초과 발생 (계속 진행 시도): {str(te)[:50]}..."
+            time.sleep(5)
+            
         # [추가] 로봇 확인(CAPTCHA) 감지
         # 여러 패턴(URL, 페이지 제목, 특정 텍스트)으로 감지
-        is_captcha = "google.com/sorry" in driver.current_url or \
-                     "robot" in driver.page_source.lower() or \
-                     "비정상적인 트래픽" in driver.page_source
+        is_captcha = False
+        try:
+            is_captcha = "google.com/sorry" in driver.current_url or \
+                         "robot" in driver.page_source.lower() or \
+                         "비정상적인 트래픽" in driver.page_source
+        except: pass
                      
         if is_captcha:
             yield "🚨 [검증 필요] 구글에서 로봇 확인(CAPTCHA)을 요청하고 있습니다."
@@ -67,32 +74,38 @@ def run_google_maps_crawler(api_key=None, use_sentiment=False, use_summary=True,
 
         yield {"type": "screenshot", "data": capture_screenshot(driver)}
 
-        # 2. '리뷰' 버튼 클릭
-        yield "'리뷰' 탭으로 이동합니다..."
+        # 2. '리뷰' 탭 확인 및 클릭
+        yield "리뷰 데이터 로딩 중..."
         try:
-            # 텍스트 '리뷰'를 포함한 요소 찾기
-            review_tab = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(@class, 'Gpq6kf') and text()='리뷰'] | //button[.//div[text()='리뷰']]")))
-            driver.execute_script("arguments[0].click();", review_tab)
-            time.sleep(random.uniform(2.0, 3.0))
-            yield "   - '리뷰' 탭 클릭 성공"
-        except Exception as e:
-            yield f"   - [정보] '리뷰' 탭이 이미 활성화되어 있거나 찾을 수 없습니다. (계속 진행)"
+            # 이미 리뷰 탭일 수도 있으므로 컨테이너 확인
+            if len(driver.find_elements(By.CLASS_NAME, "jftiEf")) > 0:
+                yield "   - 리뷰 데이터가 이미 표시되어 있습니다."
+            else:
+                review_xpath = "//div[contains(@class, 'Gpq6kf') and text()='리뷰'] | //button[contains(@aria-label, '리뷰')] | //button[.//div[text()='리뷰']]"
+                review_tab = wait.until(EC.element_to_be_clickable((By.XPATH, review_xpath)))
+                driver.execute_script("arguments[0].click();", review_tab)
+                time.sleep(random.uniform(2.0, 3.5))
+                yield "   - '리뷰' 탭 활성화 성공"
+        except Exception:
+            yield "   - [정보] 리뷰 탭이 이미 활성 상태이거나 자동 로드되었습니다."
 
-        # 3. '정렬' 클릭
-        yield "정렬 메뉴를 엽니다..."
+        # 3. '최신순' 정렬 적용
+        yield "최신순으로 정렬을 변경합니다..."
         try:
-            sort_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(@class, 'GMtm7c') and text()='정렬'] | //button[contains(@aria-label, '리뷰 정렬')]")))
+            # 정렬 버튼 클릭
+            sort_xpath = "//button[contains(@aria-label, '리뷰 정렬')] | //span[text()='정렬'] | //button[contains(@class, 'S9kvJb')]"
+            sort_btn = wait.until(EC.element_to_be_clickable((By.XPATH, sort_xpath)))
             driver.execute_script("arguments[0].click();", sort_btn)
             time.sleep(random.uniform(1.5, 2.5))
             
-            # 4. '최신순' 클릭
-            yield "'최신순' 정렬을 적용합니다..."
-            latest_opt = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(@class, 'mLuXec') and text()='최신순'] | //div[@role='menuitemradio' and .//div[text()='최신순']]")))
+            # '최신순' 옵션 클릭
+            latest_xpath = "//div[@role='menuitemradio' and .//div[text()='최신순']] | //div[contains(@class, 'fxNQSd') and text()='최신순']"
+            latest_opt = wait.until(EC.element_to_be_clickable((By.XPATH, latest_xpath)))
             driver.execute_script("arguments[0].click();", latest_opt)
             time.sleep(random.uniform(3.0, 4.5))
             yield "   - 최신순 정렬 완료"
         except Exception as e:
-            yield f"   - [주의] 정렬 설정 실패 (기본 순으로 진행): {e}"
+            yield f"   - [정보] 정렬 설정 스킵 (기본 순서 진행): {str(e)[:50]}"
 
         yield {"type": "screenshot", "data": capture_screenshot(driver)}
 
@@ -123,7 +136,7 @@ def run_google_maps_crawler(api_key=None, use_sentiment=False, use_summary=True,
             try:
                 # 1. 작성자
                 author = "알 수 없음"
-                author_tag = el.select_one('div.d4r55.fontTitleMedium')
+                author_tag = el.select_one('div.d4r55') # .fontTitleMedium 제거
                 if author_tag: author = author_tag.get_text(strip=True)
                 
                 # 2. 작성일
@@ -145,12 +158,12 @@ def run_google_maps_crawler(api_key=None, use_sentiment=False, use_summary=True,
                 if content_tag:
                     content = content_tag.get_text(separator=' ', strip=True).strip()
 
-                if not content: continue # 내용이 없으면 건너뜀
+                if not content: continue 
 
                 count += 1
                 sentiment, reason = "", ""
                 if use_sentiment:
-                    yield f"   ({count}/10) '{author}' 리뷰 분석 중..."
+                    yield f"   ({count}/{min(len(review_elements), 10)}) '{author}' 리뷰의 감성을 분석 중..."
                     sentiment, reason = analyze_sentiment(content, api_key, use_summary=use_summary, rating=rating)
                 
                 yield {
@@ -159,13 +172,11 @@ def run_google_maps_crawler(api_key=None, use_sentiment=False, use_summary=True,
                     "제목": "구글 리뷰",
                     "작성일": parse_date_to_string(date_text),
                     "별점": rating,
-                    "방문일": "",
                     "감성분석": sentiment,
                     "분석이유": reason,
                     "본문내용": content
                 }
-            except Exception as e:
-                print(f"     [오류] 개별 리뷰 파싱 실패: {e}")
+            except Exception:
                 continue
             
         if count == 0:

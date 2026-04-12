@@ -109,10 +109,11 @@ def setup_chrome_driver(headless=True, use_profile=True):
             """
         })
         
-        # 2. 봇 탐지 시 주로 체크하는 하드웨어 가속 및 플러그인 정보 노출 방지
-        driver.execute_cdp_cmd("Network.setUserAgentOverride", {
-            "userAgent": options.to_capabilities()['goog:chromeOptions']['args'][-1].split('=')[-1]
-        })
+        # 2. 봇 탐지 우회를 위한 User-Agent 명시적 고정
+        try:
+            ua = options.to_capabilities()['goog:chromeOptions']['args'][-1].split('=')[-1] if 'user-agent' in options.to_capabilities()['goog:chromeOptions']['args'][-1] else ua_list[0]
+            driver.execute_cdp_cmd("Network.setUserAgentOverride", {"userAgent": ua})
+        except: pass
 
         # [수정] CDP를 이용한 뷰포트 크기 강제 고정 (Headless 모드 잘림 방지)
         driver.execute_cdp_cmd('Emulation.setDeviceMetricsOverride', {

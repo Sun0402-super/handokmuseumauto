@@ -109,22 +109,25 @@ def is_relevant_by_keywords(text, title=""):
     museum_core = ["전시", "유물", "관람", "체험", "프로그램", "독립운동가", "의약분업", "도슨트"]
 
     # 로직 시작
-    if any(sq in combined_text for sq in strong_exclusion):
-        # 강력 제외 키워드가 있더라도 제목에 '박물관'이 있으면 수동 확인을 위해 일단 포함할 수도 있으나, 
-        # 광고성이 짙으므로 여기서는 제외를 기본으로 함
-        return False, f"강력 제외 키워드 검출 ({[kw for kw in strong_exclusion if kw in combined_text][0]})"
+    # [수정] 제목에 박물관 이름이 명시된 경우 관련성이 매우 높으므로 가중치 부여
+    is_title_strong = "한독의약박물관" in title or "의약박물관" in title
+    
+    # 강력 제외 키워드 검사 (단, 제목이 강력하면 '뉴스', '보도자료'는 허용)
+    for sq in strong_exclusion:
+        if sq in combined_text:
+            # 제목에 박물관 이름이 있으면 뉴스/보도자료 관련 키워드는 무시하고 통과 시킴
+            if is_title_strong and sq in ["뉴스", "보도자료", "특집기사", "학술대회"]:
+                continue
+            return False, f"강력 제외 키워드 검출 ({sq})"
 
     # 특정 패턴 필터링 (사용자 요청: 인근, 비슷)
     has_nearby_pattern = re.search(r"한독의약박물관\s*(인근|근처|비슷|주변)", combined_text)
     has_weak_exclusion = any(wq in combined_text for wq in weak_exclusion)
     has_museum_core = any(mc in combined_text for mc in museum_core)
     
-    # [수정] 제목에 박물관 이름이 명확히 포함된 경우 관련성 가점
-    is_title_strong = "한독의약박물관" in title or "의약박물관" in title
-
     if has_nearby_pattern or has_weak_exclusion:
-        # 제목이 강력하고 박물관 핵심 키워드가 하나라도 있으면 통과
-        if is_title_strong and (has_museum_core or "박물관" in text[:100]):
+        # 제목이 강력하고 박물관 핵심 키워드나 내용이 확인되면 통과
+        if is_title_strong and (has_museum_core or "박물관" in text[:150]):
             return True, "키워드 통과 (제목 기반 핵심 내용 확인)"
             
         # 주변 정보나 맛집 키워드가 있지만, 박물관 핵심 내용(전시 등)이 언급되었다면 통과
@@ -132,11 +135,11 @@ def is_relevant_by_keywords(text, title=""):
             return True, "키워드 통과 (박물관 내용 포함)"
             
         # 제목이나 본문 앞부분에 박물관 내용이 명확하지 않으면 제외
-        if "박물관" not in title and "박물관" not in text[:100]:
+        if "박물관" not in title and "박물관" not in text[:150]:
             return False, "주변 정보/광고성 글 (박물관 핵심 내용 미검출)"
 
     # 기본 관련성 체크
-    if is_title_strong or "한독" in combined_text or "박물관" in combined_text or found_inclusion:
+    if is_title_strong or found_inclusion or "박물관" in combined_text:
         return True, "키워드 통과"
 
     return False, "박물관 관련 키워드 미검출"
