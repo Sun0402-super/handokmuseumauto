@@ -249,7 +249,7 @@ def _collect_posts(driver, max_posts, api_key, use_sentiment, use_summary):
         # 첫 번째 게시물 클릭 확인
         print("     [인스타그램] 첫 번째 게시물 여는 중...")
         first_post = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "article a[href*='/p/'], article a[href*='/reels/'], article a[href*='/reel/']"))
+            EC.presence_of_element_located((By.CSS_SELECTOR, "a[href*='/p/'], a[href*='/reels/'], a[href*='/reel/']"))
         )
         driver.execute_script("arguments[0].click();", first_post)
         time.sleep(5)

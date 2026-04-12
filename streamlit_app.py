@@ -282,9 +282,10 @@ with st.sidebar:
     do_insta = st.checkbox("인스타그램", value=True)
     
     st.divider()
-    show_live_view = st.checkbox("📺 실시간 화면 보기", value=True, help="크롤링 중인 브라우저 화면을 하단에 작게 보여줍니다.")
+    show_live_view = st.checkbox("📺 실시간 화면 보기", value=True, help="크롤링 중인 브라우저 화면을 하단에 작게 보여줍니다. (보기 전용)")
+    is_headless = st.checkbox("🙈 브라우저 숨기기(Headless)", value=True, help="체크하면 브라우저 창이 보이지 않게 실행됩니다. 캡차(로봇 확인) 해결이 필요하면 체크를 해제하세요.")
     
-    start_clicked = st.button("🚀 크롤링 시작", use_container_width=True)
+    start_clicked = st.button("🚀 크롤링 시작", width="stretch")
     
     if st.session_state.is_finished:
         st.write("---")
@@ -296,7 +297,7 @@ with st.sidebar:
                     data=st.session_state.excel_data,
                     file_name=st.session_state.filename,
                     key="download_btn_sidebar",
-                    use_container_width=True
+                    width="stretch"
                 )
             else:
                 st.info("ℹ️ 결과가 [후기] 폴더에 저장되었습니다.")
@@ -329,7 +330,7 @@ with col_res:
                     data=st.session_state.excel_data,
                     file_name=st.session_state.filename,
                     key="download_btn_main",
-                    use_container_width=True
+                    width="stretch"
                 )
             else:
                 st.info("ℹ️ 플랫폼별 개별 엑셀 파일은 `[후기]` 폴더에 저장되었습니다.")
@@ -339,7 +340,9 @@ with col_res:
     live_view_placeholder = st.empty()
     if st.session_state.is_running:
         st.markdown("---")
-        st.caption("📺 실시간 크롤링 화면 (Live View)")
+        st.caption("📺 실시간 크롤링 화면 (Live View - 보기 전용)")
+        if not is_headless:
+            st.warning("⚠️ **직접 조작 안내**: 캡차 또는 로그인이 필요할 경우, 별도로 열린 **Chrome 브라우저 창**에서 직접 해결해 주세요.")
 
 def update_ui():
     total = len(st.session_state.results)
@@ -398,11 +401,11 @@ if start_clicked:
             update_logs("네이버 블로그 수집 중...")
             try:
                 naver_count = 0
-                for item in crawl_naver_blog("한독의약박물관", 1, api_key, use_sentiment, use_summary):
+                for item in crawl_naver_blog("한독의약박물관", 1, api_key, use_sentiment, use_summary, headless=is_headless):
                     if isinstance(item, dict):
                         if item.get("type") == "screenshot":
                             if show_live_view:
-                                live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", use_container_width=True)
+                                live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", width="stretch")
                             continue
                         
                         is_rel, reason = is_relevant_by_keywords(item.get('본문내용', ''), item.get('제목', ''))
@@ -431,11 +434,11 @@ if start_clicked:
             update_logs("다음 검색 수집 중...")
             try:
                 daum_count = 0
-                for item in crawl_daum("한독의약박물관", 1, api_key, use_sentiment, use_summary):
+                for item in crawl_daum("한독의약박물관", 1, api_key, use_sentiment, use_summary, headless=is_headless):
                     if isinstance(item, dict):
                         if item.get("type") == "screenshot":
                             if show_live_view:
-                                live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", use_container_width=True)
+                                live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", width="stretch")
                             continue
                         is_rel, reason = is_relevant_by_keywords(item.get('본문내용', ''), item.get('제목', ''))
                         if not is_rel:
@@ -455,11 +458,11 @@ if start_clicked:
             update_logs("카카오맵 리뷰 수집 중...")
             try:
                 kakao_count = 0
-                for item in crawl_kakao_map(api_key, use_sentiment, use_summary):
+                for item in crawl_kakao_map(api_key, use_sentiment, use_summary, headless=is_headless):
                     if isinstance(item, dict):
                         if item.get("type") == "screenshot":
                             if show_live_view:
-                                live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", use_container_width=True)
+                                live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", width="stretch")
                             continue
                         st.session_state.results.append(item)
                         kakao_count += 1
@@ -475,11 +478,11 @@ if start_clicked:
             update_logs("구글 지도 리뷰 수집 중...")
             try:
                 google_count = 0
-                for item in run_google_maps_crawler(api_key, use_sentiment, use_summary):
+                for item in run_google_maps_crawler(api_key, use_sentiment, use_summary, headless=is_headless):
                     if isinstance(item, dict):
                         if item.get("type") == "screenshot":
                             if show_live_view:
-                                live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", use_container_width=True)
+                                live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", width="stretch")
                             continue
                         st.session_state.results.append(item)
                         google_count += 1
@@ -494,10 +497,8 @@ if start_clicked:
         if do_insta:
             update_logs("인스타그램 수집 시작...")
             try:
-                # [수정] 사용자의 '브라우저 숨기기' 설정을 존중하며, 윈도우에서는 캡차 대응을 위해 가급적 창을 띄웁니다.
-                is_headless = True
-                if sys.platform == 'win32':
-                    is_headless = False # 인스타그램은 2단계 인증이 잦으므로 로컬에선 창을 띄우는 것이 유리
+                # [수정] 사용자의 설정을 따르되, 윈도우에서는 캡차 대응을 위해 기본적으로 창을 띄울 수 있게 합니다.
+                # is_headless = is_headless (체크박스 값 사용)
                 
                 driver, status = setup_chrome_driver(headless=is_headless, use_profile=True)
                 if not driver:
@@ -514,7 +515,7 @@ if start_clicked:
                                 if isinstance(item, dict):
                                     if item.get("type") == "screenshot":
                                         if show_live_view:
-                                            live_view_placeholder.image(item["data"], caption="인스타그램 로그인/인증 화면", use_container_width=True)
+                                            live_view_placeholder.image(item["data"], caption="인스타그램 로그인/인증 화면", width="stretch")
                                         continue
                                 else:
                                     update_logs(item)
@@ -533,7 +534,7 @@ if start_clicked:
                             if isinstance(item, dict):
                                 if item.get("type") == "screenshot":
                                     if show_live_view:
-                                        live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", use_container_width=True)
+                                        live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", width="stretch")
                                     continue
                                 # 중복 체크 (URL 기준)
                                 if not any(r.get('URL') == item.get('URL') for r in st.session_state.results):
@@ -549,7 +550,7 @@ if start_clicked:
                             if isinstance(item, dict):
                                 if item.get("type") == "screenshot":
                                     if show_live_view:
-                                        live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", use_container_width=True)
+                                        live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", width="stretch")
                                     continue
                                 if not any(r.get('URL') == item.get('URL') for r in st.session_state.results):
                                     st.session_state.results.append(item)
@@ -564,7 +565,7 @@ if start_clicked:
                             if isinstance(item, dict):
                                 if item.get("type") == "screenshot":
                                     if show_live_view:
-                                        live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", use_container_width=True)
+                                        live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", width="stretch")
                                     continue
                                 if not any(r.get('URL') == item.get('URL') for r in st.session_state.results):
                                     st.session_state.results.append(item)

@@ -116,12 +116,13 @@ def setup_chrome_driver(headless=True, use_profile=True):
         except: pass
 
         # [수정] CDP를 이용한 뷰포트 크기 강제 고정 (Headless 모드 잘림 방지)
-        driver.execute_cdp_cmd('Emulation.setDeviceMetricsOverride', {
-            'width': 1920,
-            'height': 1080,
-            'deviceScaleFactor': 1,
-            'mobile': False
-        })
+        if headless:
+            driver.execute_cdp_cmd('Emulation.setDeviceMetricsOverride', {
+                'width': 1920,
+                'height': 1080,
+                'deviceScaleFactor': 1,
+                'mobile': False
+            })
 
         # [수정] 창 크기 명시적 재설정 (안정화 대기 후 적용)
         try:
