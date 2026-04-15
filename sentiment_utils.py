@@ -3,8 +3,6 @@ import os
 # Gemini API 관련
 DEFAULT_API_KEY = "AIzaSyDLD7stdtusDTxCYrqonQiL4S5m050X98s"
 
-# KcBERT 모델 로드 (전역 변수로 관리하여 중복 로드 방지)
-SENTIMENT_PIPELINE = None
 
 # 사용자 정의 긍정 키워드 (네이버/구글/기타)
 POSITIVE_KEYWORDS = [
@@ -51,43 +49,6 @@ def check_forced_sentiment(text, is_instagram=False):
             
     return None
 
-def analyze_sentiment_kcbert(text):
-    global SENTIMENT_PIPELINE
-    if not text or not text.strip():
-        return ("분석불가", "본문 내용 없음")
-    
-    try:
-        if SENTIMENT_PIPELINE is None:
-            try:
-                from transformers import pipeline
-            except ImportError:
-                return ("분석불가", "로컬 분석 라이브러리(transformers)가 설치되지 않았습니다. Gemini 모드를 사용하세요.")
-            
-            # NSMC로 파인튜닝된 KcBERT 모델 사용
-            SENTIMENT_PIPELINE = pipeline(
-                "text-classification", 
-                model="jaehyeong/kcbert-base-finetuned-nsmc",
-                device=-1 # CPU 사용
-            )
-        
-        clean_text = text[:510]
-        result = SENTIMENT_PIPELINE(clean_text)[0]
-        label = result['label']
-        score = result['score']
-        
-        if label == '1' or label == 'LABEL_1':
-            sentiment = "긍정"
-            reason = f"KcBERT 분석 결과 긍정 확률 {score:.1%}"
-        elif label == '0' or label == 'LABEL_0':
-            sentiment = "부정"
-            reason = f"KcBERT 분석 결과 부정 확률 {score:.1%}"
-        else:
-            sentiment = "중립"
-            reason = f"분석 결과 모호함 ({label})"
-            
-        return (sentiment, reason)
-    except Exception as e:
-        return ("분석불가", f"오류: {str(e)[:50]}")
 
 def analyze_sentiment_gemini(text, api_key, use_summary=True):
     if not text or not text.strip():
@@ -189,8 +150,5 @@ def analyze_sentiment(text, api_key=None, mode="gemini", is_instagram=False, use
     if forced_res:
         return forced_res
         
-    if mode == "kcbert":
-        # KcBERT 시도
-        return analyze_sentiment_kcbert(text)
-    else:
-        return analyze_sentiment_gemini(text, api_key or DEFAULT_API_KEY, use_summary=use_summary)
+    # Gemini API 기반 감성 분석
+    return analyze_sentiment_gemini(text, api_key or DEFAULT_API_KEY, use_summary=use_summary)
