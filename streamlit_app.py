@@ -496,88 +496,100 @@ if start_clicked:
         # 5. 인스타그램 수집
         if do_insta:
             update_logs("인스타그램 수집 시작...")
-            try:
-                # [수정] 사용자의 설정을 따르되, 윈도우에서는 캡차 대응을 위해 기본적으로 창을 띄울 수 있게 합니다.
-                # is_headless = is_headless (체크박스 값 사용)
-                
-                driver, status = setup_chrome_driver(headless=is_headless, use_profile=True)
-                if not driver:
-                    update_logs("❌ 브라우저를 시작할 수 없습니다.")
-                else:
-                    # [수정] instagram_login이 제너레이터로 변경됨에 따라 루프로 수용
-                    login_gen = instagram_login(driver, insta_id, insta_pw)
-                    login_success = False
-                    
-                    try:
-                        while True:
-                            try:
-                                item = next(login_gen)
+            is_cloud_env = sys.platform != 'win32'
+
+            if is_cloud_env:
+                # ── 클라우드 환경: 수집 불가 안내 ──────────────────────────────
+                update_logs("⚠️ [인스타그램] 현재 클라우드(Streamlit Cloud) 환경에서는 인스타그램 수집이 불가합니다.")
+                update_logs("💡 인스타그램 수집은 담당자 PC에서 로컬로 실행해 주세요.")
+                st.warning(
+                    "📵 **인스타그램 수집 불가 안내**\n\n"
+                    "인스타그램은 클라우드 서버에서 실행 시 **봇 차단 정책**으로 인해 로그인이 불가능합니다.\n\n"
+                    "**인스타그램 후기 수집 방법:**\n"
+                    "1. 담당자 PC에 이 프로그램을 설치합니다.\n"
+                    "2. `run_app.bat` 파일을 실행하여 로컬 환경에서 앱을 열고\n"
+                    "3. '인스타그램' 항목만 체크한 뒤 수집을 진행합니다.\n\n"
+                    "나머지 플랫폼(네이버, 다음, 카카오맵, 구글)은 이 페이지에서 정상적으로 수집됩니다."
+                )
+            else:
+                # ── 로컬(Windows) 환경: 정상 수집 ────────────────────────────
+                try:
+                    driver, status = setup_chrome_driver(headless=is_headless, use_profile=True)
+                    if not driver:
+                        update_logs("❌ 브라우저를 시작할 수 없습니다.")
+                    else:
+                        login_gen = instagram_login(driver, insta_id, insta_pw)
+                        login_success = False
+                        
+                        try:
+                            while True:
+                                try:
+                                    item = next(login_gen)
+                                    if isinstance(item, dict):
+                                        if item.get("type") == "screenshot":
+                                            if show_live_view:
+                                                live_view_placeholder.image(item["data"], caption="인스타그램 로그인/인증 화면", width="stretch")
+                                            continue
+                                    else:
+                                        update_logs(item)
+                                except StopIteration as e:
+                                    login_success = e.value
+                                    break
+                        except Exception as le:
+                            update_logs(f"⚠️ 로그인 시도 중 오류: {le}")
+                            login_success = False
+
+                        if login_success:
+                            insta_count = 0
+                            # 5-1. 해시태그 수집 (#한독의약박물관)
+                            update_logs("📸 해시태그(#한독의약박물관) 수집 중...")
+                            for item in crawl_hashtag(driver, "한독의약박물관", insta_max_posts, api_key, use_sentiment, use_summary):
                                 if isinstance(item, dict):
                                     if item.get("type") == "screenshot":
                                         if show_live_view:
-                                            live_view_placeholder.image(item["data"], caption="인스타그램 로그인/인증 화면", width="stretch")
+                                            live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", width="stretch")
                                         continue
+                                    if not any(r.get('URL') == item.get('URL') for r in st.session_state.results):
+                                        st.session_state.results.append(item)
+                                        insta_count += 1
+                                        update_ui()
                                 else:
                                     update_logs(item)
-                            except StopIteration as e:
-                                login_success = e.value
-                                break
-                    except Exception as le:
-                        update_logs(f"⚠️ 로그인 시도 중 오류: {le}")
-                        login_success = False
+                            
+                            # 5-2. 공식 계정(@handokmuseum) 태그됨 수집
+                            update_logs("🏷️ 공식 계정(@handokmuseum) '태그됨' 수집 중...")
+                            for item in crawl_tagged_posts(driver, "handokmuseum", insta_max_posts, api_key, use_sentiment, use_summary):
+                                if isinstance(item, dict):
+                                    if item.get("type") == "screenshot":
+                                        if show_live_view:
+                                            live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", width="stretch")
+                                        continue
+                                    if not any(r.get('URL') == item.get('URL') for r in st.session_state.results):
+                                        st.session_state.results.append(item)
+                                        insta_count += 1
+                                        update_ui()
+                                else:
+                                    update_logs(item)
 
-                    if login_success:
-                        insta_count = 0
-                        # 5-1. 해시태그 수집 (#한독의약박물관)
-                        update_logs("📸 해시태그(#한독의약박물관) 수집 중...")
-                        for item in crawl_hashtag(driver, "한독의약박물관", insta_max_posts, api_key, use_sentiment, use_summary):
-                            if isinstance(item, dict):
-                                if item.get("type") == "screenshot":
-                                    if show_live_view:
-                                        live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", width="stretch")
-                                    continue
-                                # 중복 체크 (URL 기준)
-                                if not any(r.get('URL') == item.get('URL') for r in st.session_state.results):
-                                    st.session_state.results.append(item)
-                                    insta_count += 1
-                                    update_ui()
-                            else:
-                                update_logs(item)
-                        
-                        # 5-2. 공식 계정(@handokmuseum) 태그됨 수집
-                        update_logs("🏷️ 공식 계정(@handokmuseum) '태그됨' 수집 중...")
-                        for item in crawl_tagged_posts(driver, "handokmuseum", insta_max_posts, api_key, use_sentiment, use_summary):
-                            if isinstance(item, dict):
-                                if item.get("type") == "screenshot":
-                                    if show_live_view:
-                                        live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", width="stretch")
-                                    continue
-                                if not any(r.get('URL') == item.get('URL') for r in st.session_state.results):
-                                    st.session_state.results.append(item)
-                                    insta_count += 1
-                                    update_ui()
-                            else:
-                                update_logs(item)
+                            # 5-3. 장소 수집 (한독의약박물관 Location ID)
+                            update_logs("📍 장소(Location) 기반 수집 중...")
+                            for item in crawl_location(driver, "109120676658159", insta_max_posts, api_key, use_sentiment, use_summary):
+                                if isinstance(item, dict):
+                                    if item.get("type") == "screenshot":
+                                        if show_live_view:
+                                            live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", width="stretch")
+                                        continue
+                                    if not any(r.get('URL') == item.get('URL') for r in st.session_state.results):
+                                        st.session_state.results.append(item)
+                                        insta_count += 1
+                                        update_ui()
+                                else:
+                                    update_logs(item)
 
-                        # 5-3. 장소 수집 (한독의약박물관 Location ID)
-                        update_logs("📍 장소(Location) 기반 수집 중...")
-                        for item in crawl_location(driver, "109120676658159", insta_max_posts, api_key, use_sentiment, use_summary):
-                            if isinstance(item, dict):
-                                if item.get("type") == "screenshot":
-                                    if show_live_view:
-                                        live_view_placeholder.image(item["data"], caption="현재 수집 중인 화면", width="stretch")
-                                    continue
-                                if not any(r.get('URL') == item.get('URL') for r in st.session_state.results):
-                                    st.session_state.results.append(item)
-                                    insta_count += 1
-                                    update_ui()
-                            else:
-                                update_logs(item)
-
-                        update_logs(f"✅ 인스타그램 {insta_count}건 수집 완료!")
-                    driver.quit()
-            except Exception as e:
-                update_logs(f"인스타그램 오류: {e}")
+                            update_logs(f"✅ 인스타그램 {insta_count}건 수집 완료!")
+                        driver.quit()
+                except Exception as e:
+                    update_logs(f"인스타그램 오류: {e}")
 
         # 6. 결과 저장
         if st.session_state.results:
