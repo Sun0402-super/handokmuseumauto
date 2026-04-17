@@ -4,7 +4,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from driver_utils import setup_chrome_driver, capture_screenshot
-from filter_utils import parse_date_to_string
+from filter_utils import parse_date_to_string, is_within_one_week
 from sentiment_utils import analyze_sentiment
 
 def crawl_daum(query, max_pages=1, api_key=None, use_sentiment=False, use_summary=True, headless=True):
@@ -79,6 +79,10 @@ def crawl_daum(query, max_pages=1, api_key=None, use_sentiment=False, use_summar
                         content_elem = card.find_element(By.CSS_SELECTOR, "p.conts-desc, .conts-desc")
                         content_snippet = content_elem.text.strip()
                     except: pass
+
+                    # [필터] 크롤링 날짜 기준 7일 초과 게시물 제외
+                    if not is_within_one_week(date):
+                        continue
 
                     # 감성 분석
                     sentiment, reason = "", ""

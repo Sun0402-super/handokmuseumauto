@@ -160,6 +160,11 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
                             if content_snippet: break
                         except: continue
 
+                    # [필터] 크롤링 날짜 기준 7일 초과 게시물 제외
+                    if not is_within_one_week(date_raw):
+                        yield f"   ⏩ [날짜 제외] '{title[:20]}...' ({date_raw})"
+                        continue
+
                     # 감성 분석 (스니펫 기준)
                     sentiment, reason = "", ""
                     if use_sentiment and content_snippet:
