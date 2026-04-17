@@ -141,12 +141,22 @@ def process_for_excel(df, source):
     
     # 분석이유(키워드 | 요약) 분리 헬퍼
     def split_reason(row):
+        import re
         reason = row.get('분석이유', '')
         kw, sm = "", ""
-        if reason and "|" in reason:
+        if not reason:
+            return kw, sm
+        if "|" in reason:
+            # Gemini가 "키워드1, 키워드2 | 한줄요약" 형식으로 응답한 경우
             parts = reason.split("|", 1)
             kw = parts[0].strip()
             sm = parts[1].strip()
+        else:
+            # 강제 키워드 감지 결과 (예: "긍정 키워드('좋다') 포함") 처리
+            # 작은따옴표 안의 단어를 키워드로 추출
+            quoted = re.findall(r"'([^']+)'", reason)
+            kw = ", ".join(quoted) if quoted else ""
+            sm = reason  # 이유 전체를 한줄요약으로 사용
         return kw, sm
 
     new_rows = []
@@ -194,6 +204,11 @@ def process_for_unified_excel(df):
             parts = reason.split("|", 1)
             kw = parts[0].strip()
             sm = parts[1].strip()
+        elif reason:
+            # 강제 키워드 감지 결과 처리 (따옴표 안 단어 → 키워드)
+            quoted = re.findall(r"'([^']+)'", reason)
+            kw = ", ".join(quoted) if quoted else ""
+            sm = reason
         
         # 날짜 포맷팅 (yyyy-mm-dd)
         raw_date = item.get('작성일', '-')

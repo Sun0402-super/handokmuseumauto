@@ -78,7 +78,11 @@ def analyze_sentiment_gemini(text, api_key, use_summary=True):
 2. 감성: [긍정 / 중립 / 부정 / 부적합]
 """
         if use_summary:
-            prompt += "\n3. 내용 요약: [반복되는 주요 단어들을 앞에 나열한 뒤, 가장 중요한 핵심 내용을 한 줄로 요약해 주세요. 예: 키워드, 단어, 단어 | 핵심 요약 내용]"
+            prompt += (
+                "\n3. 내용 요약: 반드시 아래 형식을 정확히 따르세요 → 키워드1, 키워드2, 키워드3 | 핵심 한 줄 요약"
+                "\n   (예시: 전시, 아이, 카페 | 아이와 함께 방문해 전시도 보고 카페에서 즐거운 시간을 보냈음)"
+                "\n   '구분자 |' 를 반드시 포함해야 합니다. 앞에는 본문에서 반복된 단어/핵심 키워드 3~5개, 뒤에는 한 줄 요약."
+            )
         else:
             prompt += "\n3. 내용 요약: [요약 생략]"
 
@@ -115,23 +119,28 @@ def analyze_sentiment_gemini(text, api_key, use_summary=True):
             sentiment = "부적합"
         
         # 2. 내용 요약/이유 추출
-        # (내용 요약|이유|요약|Summary) 뒤에 오는 텍스트를 찾되, 다른 필드(감성 등)가 나오기 전까지 끊음
-        r_patterns = [r"(?:내용 요약|이유|요약|Summary)[:\s]+(.*?)(?=\n(?:감성|Sentiment)|$)", r"(?:내용 요약|이유|요약|Summary)[:\s]+(.*)"]
+        # '3. 내용 요약:' 또는 '내용 요약:' 뒤의 내용을 추출 (번호 접두사 포함)
+        r_patterns = [
+            r"(?:\d+\.\s*)?(?:내용\s*요약|요약|Summary)[:\s]+(.+?)(?=\n\d+\.|\n관련성|\n감성|$)",
+            r"(?:\d+\.\s*)?(?:내용\s*요약|요약|Summary)[:\s]+(.*)",
+        ]
         for pat in r_patterns:
             r_match = re.search(pat, res_text, re.DOTALL | re.I)
             if r_match:
                 reason = r_match.group(1).strip()
-                if reason: break
+                # '요약 생략' 같은 더미 값 무시
+                if reason and "생략" not in reason: break
         
         # 폴백: 특정 키워드가 없는 경우 전체 텍스트에서 불필요한 부분 제거 후 사용
         if not reason:
             reason = res_text.replace(f"감성: {sentiment}", "").strip()
-            # 줄바꿈이나 번호 등 정리
-            reason = re.sub(r"^\d+\.\s*", "", reason) 
+            reason = re.sub(r"^\d+\.\s*", "", reason, flags=re.MULTILINE)
             reason = re.sub(r"[*#]", "", reason).strip()
 
         # 분석 결과 가공
         reason = reason.replace("\n", " ").strip()
+        # 마크다운 볼드(**) 잔재 제거
+        reason = re.sub(r"\*{1,2}", "", reason).strip()
         if len(reason) > 300:
             reason = reason[:297] + "..."
             
