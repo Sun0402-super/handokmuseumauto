@@ -150,7 +150,13 @@ def run_google_maps_crawler(api_key=None, use_sentiment=False, use_summary=True,
                 # 2. 작성일
                 date_text = "-"
                 date_tag = el.select_one('span.rsqaWe')
-                if date_tag: date_text = date_tag.get_text(strip=True)
+                if date_tag:
+                    date_text = date_tag.get_text(strip=True)
+
+                # [필터] 크롤링 날짜 기준 7일 초과 리뷰 제외
+                if not is_within_one_week(date_text):
+                    yield f"   ⏩ [날짜 필터] '{date_text}' → 1주일 이전 리뷰 제외"
+                    continue
 
                 # 3. 별점
                 rating = "5"
@@ -168,10 +174,6 @@ def run_google_maps_crawler(api_key=None, use_sentiment=False, use_summary=True,
 
                 if not content: continue
 
-                # [필터] 크롤링 날짜 기준 7일 초과 리뷰 제외
-                if not is_within_one_week(date_text):
-                    continue
-
                 count += 1
                 sentiment, reason = "", ""
                 if use_sentiment:
@@ -186,7 +188,8 @@ def run_google_maps_crawler(api_key=None, use_sentiment=False, use_summary=True,
                     "별점": rating,
                     "감성분석": sentiment,
                     "분석이유": reason,
-                    "본문내용": content
+                    "본문내용": content,
+                    "URL": target_url,
                 }
             except Exception:
                 continue

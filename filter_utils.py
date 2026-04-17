@@ -3,57 +3,92 @@ from datetime import datetime, timedelta
 
 def parse_date_to_string(date_str):
     """
-    상대적인 날짜(예: '2일 전', '1주 전')나 다양한 날짜 형식을 
-    'yyyy-mm-dd' 절대 날짜 문자열로 변환합니다.
+    상대적인 날짜(예: '2일 전', '1주 전', '2 months ago')나 다양한 날짜 형식을
+    'YYYY-MM-DD' 절대 날짜 문자열로 변환합니다.
+    구글 지도는 한국어/영어 혼용으로 날짜를 반환할 수 있어 두 형식 모두 지원합니다.
     """
     if not date_str or date_str == "-":
         return datetime.now().strftime("%Y-%m-%d")
-        
+
     date_str = date_str.strip()
     now = datetime.now()
-    
+
     try:
-        # 1. '시간 전', '분 전', '방금' 등 -> 오늘
+        # ── 한국어 형식 ──────────────────────────────────────────────────
+        # 1. '시간 전', '분 전', '방금', '초 전' → 오늘
         if any(x in date_str for x in ["시간", "분", "방금", "초"]):
             return now.strftime("%Y-%m-%d")
-            
+
         # 2. '일 전'
         if "일 전" in date_str:
             days = int(re.search(r"(\d+)", date_str).group(1))
-            target_date = now - timedelta(days=days)
-            return target_date.strftime("%Y-%m-%d")
-                
+            return (now - timedelta(days=days)).strftime("%Y-%m-%d")
+
         # 3. '주 전'
         if "주 전" in date_str:
             weeks = int(re.search(r"(\d+)", date_str).group(1))
-            target_date = now - timedelta(weeks=weeks)
-            return target_date.strftime("%Y-%m-%d")
+            return (now - timedelta(weeks=weeks)).strftime("%Y-%m-%d")
 
-        # 4. '달 전', '년 전'
-        if "달 전" in date_str:
+        # 4. '달 전' / '개월 전'
+        if "달 전" in date_str or "개월 전" in date_str:
             months = int(re.search(r"(\d+)", date_str).group(1))
-            target_date = now - timedelta(days=months * 30)
-            return target_date.strftime("%Y-%m-%d")
-        
+            return (now - timedelta(days=months * 30)).strftime("%Y-%m-%d")
+
+        # 5. '년 전'
         if "년 전" in date_str:
             years = int(re.search(r"(\d+)", date_str).group(1))
-            target_date = now - timedelta(days=years * 365)
-            return target_date.strftime("%Y-%m-%d")
+            return (now - timedelta(days=years * 365)).strftime("%Y-%m-%d")
 
-        # 5. 절대 날짜 형식 (예: 2024.03.15, 03-15)
+        # ── 영어 형식 (구글 지도 영어 로케일 대응) ─────────────────────
+        ds_lower = date_str.lower()
+
+        # 'a minute ago', 'an hour ago', 'just now' → 오늘
+        if any(x in ds_lower for x in ["minute", "hour", "just now", "second"]):
+            return now.strftime("%Y-%m-%d")
+
+        # 'X day(s) ago'
+        m = re.search(r"(\d+)\s*day", ds_lower)
+        if m:
+            return (now - timedelta(days=int(m.group(1)))).strftime("%Y-%m-%d")
+        if "a day ago" in ds_lower:
+            return (now - timedelta(days=1)).strftime("%Y-%m-%d")
+
+        # 'X week(s) ago'
+        m = re.search(r"(\d+)\s*week", ds_lower)
+        if m:
+            return (now - timedelta(weeks=int(m.group(1)))).strftime("%Y-%m-%d")
+        if "a week ago" in ds_lower:
+            return (now - timedelta(weeks=1)).strftime("%Y-%m-%d")
+
+        # 'X month(s) ago'
+        m = re.search(r"(\d+)\s*month", ds_lower)
+        if m:
+            return (now - timedelta(days=int(m.group(1)) * 30)).strftime("%Y-%m-%d")
+        if "a month ago" in ds_lower:
+            return (now - timedelta(days=30)).strftime("%Y-%m-%d")
+
+        # 'X year(s) ago'
+        m = re.search(r"(\d+)\s*year", ds_lower)
+        if m:
+            return (now - timedelta(days=int(m.group(1)) * 365)).strftime("%Y-%m-%d")
+        if "a year ago" in ds_lower:
+            return (now - timedelta(days=365)).strftime("%Y-%m-%d")
+
+        # ── 절대 날짜 형식 (예: 2024.03.15 / 2024-03-15 / 03.25) ─────
         nums = re.findall(r"\d+", date_str)
         if len(nums) >= 2:
-            if len(nums) == 2: # 03.25 형식
+            if len(nums) == 2:  # 03.25 형식
                 post_date = datetime(now.year, int(nums[0]), int(nums[1]))
-            else: # 2024.03.15 형식
+            else:               # 2024.03.15 형식
                 year = int(nums[0])
-                if year < 100: year += 2000 # 24 -> 2024
+                if year < 100:
+                    year += 2000
                 post_date = datetime(year, int(nums[1]), int(nums[2]))
             return post_date.strftime("%Y-%m-%d")
     except:
         pass
-        
-    return date_str # 변환 실패 시 원본 반환
+
+    return date_str  # 변환 실패 시 원본 반환
 
 def is_relevant_by_keywords(text, title=""):
     """
@@ -146,54 +181,74 @@ def is_relevant_by_keywords(text, title=""):
 
 def is_within_one_week(date_str):
     """
-    네이버/구글 등의 날짜 텍스트를 분석하여 7일 이내인지 판별
-    예: '21시간 전', '2일 전', '1주 전', '2024.03.15'
+    날짜 텍스트를 분석하여 크롤링 시점 기준 7일 이내인지 판별.
+    한국어(일 전/주 전/달 전) 및 영어(days ago/weeks ago/months ago) 모두 지원.
+    7일 초과 시 False를 반환하며, 판단 불가 시 True(포함)로 처리.
     """
     if not date_str:
-        return True # 날짜가 없으면 일단 포함 (안정성)
-    
-    date_str = date_str.strip()
-    
-    # 1. '시간 전', '분 전', '방금' 등은 무조건 오늘/어제
-    if "시간" in date_str or "분" in date_str or "방금" in date_str or "초" in date_str:
         return True
-    
-    # 2. '일 전' 처리
+
+    date_str = date_str.strip()
+    ds_lower = date_str.lower()
+
+    # ── 한국어 패턴 ──────────────────────────────────────────────────────
+    # 1. 시간/분/초/방금 → 당일 → 포함
+    if any(x in date_str for x in ["시간", "분", "방금", "초"]):
+        return True
+
+    # 2. 'N일 전'
     if "일 전" in date_str:
         try:
-            days = int(re.search(r"(\d+)", date_str).group(1))
-            return days <= 7
+            return int(re.search(r"(\d+)", date_str).group(1)) <= 7
         except:
             return True
-            
-    # 3. '주 전' 처리
+
+    # 3. 'N주 전' — 1주(≤7일)만 허용
     if "주 전" in date_str:
         try:
-            weeks = int(re.search(r"(\d+)", date_str).group(1))
-            return weeks <= 1 # '1주 전'까지 인정
+            return int(re.search(r"(\d+)", date_str).group(1)) <= 1
         except:
             return True
 
-    # 4. '달 전', '년 전' 처리
-    if "달 전" in date_str or "년 전" in date_str:
+    # 4. '달 전' / '개월 전' / '년 전' → 7일 초과 → 제외
+    if any(x in date_str for x in ["달 전", "개월 전", "년 전"]):
         return False
 
-    # 5. 절대 날짜 형식 (예: 2024.03.15, 2024-03-15)
+    # ── 영어 패턴 (구글 지도 영어 로케일) ──────────────────────────────
+    # 시간/분/초/just now → 포함
+    if any(x in ds_lower for x in ["minute", "hour", "second", "just now"]):
+        return True
+
+    # 'X day(s) ago' / 'a day ago'
+    m = re.search(r"(\d+)\s*day", ds_lower)
+    if m:
+        return int(m.group(1)) <= 7
+    if "a day ago" in ds_lower:
+        return True
+
+    # 'X week(s) ago' / 'a week ago' → 1주만 허용
+    m = re.search(r"(\d+)\s*week", ds_lower)
+    if m:
+        return int(m.group(1)) <= 1
+    if "a week ago" in ds_lower:
+        return True
+
+    # 'X month(s) ago' / 'a month ago' / 'X year(s) ago' → 제외
+    if any(x in ds_lower for x in ["month", "year"]):
+        return False
+
+    # ── 절대 날짜 (예: 2024.03.15 / 2024-03-15) ────────────────────────
     try:
-        # 숫자만 추출
         nums = re.findall(r"\d+", date_str)
-        if len(nums) >= 2:
-            from datetime import datetime
-            now = datetime.now()
-            # 연도가 없으면 올해로 가정
-            if len(nums) == 2:
-                post_date = datetime(now.year, int(nums[0]), int(nums[1]))
-            else:
-                post_date = datetime(int(nums[0]), int(nums[1]), int(nums[2]))
-            
-            delta = now - post_date
-            return delta.days <= 7
+        now = datetime.now()
+        if len(nums) == 2:
+            post_date = datetime(now.year, int(nums[0]), int(nums[1]))
+        elif len(nums) >= 3:
+            post_date = datetime(int(nums[0]), int(nums[1]), int(nums[2]))
+        else:
+            return True
+        return (now - post_date).days <= 7
     except:
         pass
 
-    return True # 판단 불가 시 포함
+    return True  # 판단 불가 → 포함
