@@ -35,27 +35,65 @@ NEGATIVE_KEYWORDS = [
     "불편", "재미없다", "재미 없다", "재방문 의사 없음", "재방문 의사가 없", "다시 안 올", "또 오고 싶지 않"
 ]
 
-# 키워드 추출 시 제외할 불용어
+# 키워드 추출 시 제외할 불용어 (자주 나오지만 의미 없는 단어)
 _STOPWORDS = {
+    # 대명사/조사류
     "이", "그", "저", "것", "수", "을", "를", "이", "가", "은", "는", "도", "에", "의", "와", "과",
+    "로", "으로", "에서", "에게", "부터", "까지", "만", "도", "도요", "요",
+    # 자주 쓰이는 동사/형용사 (의미 낮음)
     "하다", "있다", "없다", "이다", "하고", "하여", "하면", "했다", "했어", "했는데", "하는",
-    "합니다", "해요", "이에", "이고", "한다", "있어", "없어", "그리고", "하지만", "그런데", "그래서",
-    "너무", "정말", "진짜", "매우", "아주", "조금", "많이", "좀", "제", "우리", "저는", "저도",
-    "박물관", "한독", "의약", "방문", "관람", "한독의약박물관",
+    "합니다", "해요", "이에", "이고", "한다", "있어", "없어", "같다", "같아", "같은",
+    "됩니다", "됐다", "되어", "되다", "되고", "되는",
+    # 접속사/부사
+    "그리고", "하지만", "그런데", "그래서", "또한", "또는", "그러나", "따라서", "물론", "역시",
+    "너무", "정말", "진짜", "매우", "아주", "조금", "많이", "좀", "더", "덜",
+    # 인칭 대명사
+    "제", "우리", "저는", "저도", "저희", "우리는", "자녀", "아이들",
+    # 박물관 관련 기본 단어 (너무 자주 나와서 제외)
+    "박물관", "한독", "의약", "방문", "관람", "한독의약박물관", "음성",
+    # 시간 표현
+    "오늘", "어제", "내일", "주말", "평일", "오전", "오후", "시간",
+    # 기타 의미 낮은 단어
+    "이번", "다음", "이전", "요즘", "최근", "사진", "포스팅", "블로그",
 }
 
 
 def _simple_keyword_extract(text, n=5):
     """
-    Gemini 호출 불가 시 Python으로 키워드 추출 (빈도 기반).
-    한글 2글자 이상 단어에서 불용어를 제외하고 상위 n개 반환.
+    Python 기반 키워드 추출 (Gemini 사용 불가 시 폴백).
+    우선순위: ① 텍스트에 실제로 등장한 긍정/부정 감성 단어 → ② 빈도 높은 일반 단어
+    최대 n개 반환.
     """
-    words = re.findall(r"[가-힣]{2,}", text)
-    filtered = [w for w in words if w not in _STOPWORDS]
-    if not filtered:
-        return ["박물관", "관람", "후기", "전시", "방문"]
-    counts = Counter(filtered)
-    return [w for w, _ in counts.most_common(n)]
+    result = []
+
+    # 1) 텍스트에서 실제로 등장한 부정 키워드 우선 수집
+    matched_neg = [kw for kw in NEGATIVE_KEYWORDS if kw in text]
+    for kw in matched_neg:
+        if kw not in result:
+            result.append(kw)
+        if len(result) >= n:
+            return result
+
+    # 2) 긍정 키워드 수집
+    matched_pos = [kw for kw in POSITIVE_KEYWORDS if kw in text]
+    for kw in matched_pos:
+        if kw not in result:
+            result.append(kw)
+        if len(result) >= n:
+            return result
+
+    # 3) 부족한 경우 빈도 기반 단어로 보완
+    if len(result) < n:
+        all_words = re.findall(r"[가-힣]{2,}", text)
+        filtered = [w for w in all_words if w not in _STOPWORDS and w not in result]
+        counts = Counter(filtered)
+        for word, _ in counts.most_common(n * 3):
+            if word not in result:
+                result.append(word)
+            if len(result) >= n:
+                break
+
+    return result[:n] if result else ["박물관", "관람", "후기", "전시", "방문"]
 
 
 def check_forced_sentiment_direction(text, is_instagram=False):
@@ -178,8 +216,10 @@ def analyze_sentiment_gemini(text, api_key, use_summary=True):
 3. 내용 요약: 전시, 아이, 카페, 체험, 약학 | 아이와 함께 전시를 관람하고 카페에서 즐거운 시간을 보낸 긍정적인 후기
 
 3번 규칙:
-- 앞부분(|왼쪽): 본문에 실제로 나오는 핵심 단어 정확히 5개, 쉼표로 구분
-- 뒷부분(|오른쪽): 방문자의 경험/감정 중심으로 한 문장 요약
+- 앞부분(|왼쪽): 후기에서 방문자의 감정/평가를 나타내는 단어를 우선으로 5개 선택
+  (예: 유익함, 친절함, 만족, 깔끔함, 재미 / 또는 불편함, 실망, 지루함, 부족함, 아쉬움)
+  감성 단어가 5개가 되지 않는 경우, 후기의 핵심 소재(전시, 카페, 주차 등)로 채울 것
+- 뒷부분(|오른쪽): 방문자의 경험과 감정을 중심으로 한 문장 요약
 - '|' 구분자 반드시 포함
 """
         if not use_summary:
