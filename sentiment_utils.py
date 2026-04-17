@@ -83,7 +83,7 @@ def analyze_sentiment_gemini(text, api_key, use_summary=True):
 
         prompt += f"\n\n--- 게시물 본문 ---\n{text[:2000]}\n"
         
-        response = client.models.generate_content(model="gemini-2.0-flash-lite-preview-02-05", contents=prompt)
+        response = client.models.generate_content(model="gemini-2.0-flash-lite", contents=prompt)
         res_text = response.text.strip()
         
         sentiment = "중립"
