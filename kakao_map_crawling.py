@@ -4,7 +4,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from driver_utils import setup_chrome_driver, capture_screenshot
-from filter_utils import parse_date_to_string
+from filter_utils import parse_date_to_string, is_within_one_week
 from sentiment_utils import analyze_sentiment
 
 def crawl_kakao_map(api_key=None, use_sentiment=False, use_summary=True, headless=True):
@@ -125,6 +125,10 @@ def crawl_kakao_map(api_key=None, use_sentiment=False, use_summary=True, headles
                 except: pass
                 
                 if not content and not author: continue
+
+                # [필터] 크롤링 날짜 기준 7일 초과 리뷰 제외
+                if not is_within_one_week(date):
+                    continue
 
                 # 감성 분석
                 sentiment, reason = "", ""

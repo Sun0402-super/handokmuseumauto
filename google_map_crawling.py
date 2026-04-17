@@ -9,7 +9,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from driver_utils import setup_chrome_driver, capture_screenshot
 from sentiment_utils import analyze_sentiment
-from filter_utils import parse_date_to_string
+from filter_utils import parse_date_to_string, is_within_one_week
 
 def run_google_maps_crawler(api_key=None, use_sentiment=False, use_summary=True, headless=True):
     """구글 지도 리뷰 크롤링 (Google Maps 서비스 직접 접속 방식)"""
@@ -21,8 +21,7 @@ def run_google_maps_crawler(api_key=None, use_sentiment=False, use_summary=True,
     yield f"     [시스템] 운영체제: {sys.platform}, 현재 모드: {'브라우저 숨김' if headless else '브라우저 표시'}"
     
     if sys.platform == 'win32' and headless:
-        headless = False
-        yield "⚠️ 로컬 환경(Windows)이 감지되어 캡차 응답성을 위해 '브라우저 표시' 모드로 강제 전환합니다."
+        yield "ℹ️ 현재 '브라우저 숨김' 모드입니다. 캡차 발생 시 해결이 어려울 수 있습니다."
 
     try:
         yield "스텔스 모드로 브라우저를 시작합니다..."
@@ -48,7 +47,6 @@ def run_google_maps_crawler(api_key=None, use_sentiment=False, use_summary=True,
         is_captcha = False
         try:
             is_captcha = "google.com/sorry" in driver.current_url or \
-                         "robot" in driver.page_source.lower() or \
                          "비정상적인 트래픽" in driver.page_source
         except: pass
                      
@@ -92,16 +90,26 @@ def run_google_maps_crawler(api_key=None, use_sentiment=False, use_summary=True,
         # 3. '최신순' 정렬 적용
         yield "최신순으로 정렬을 변경합니다..."
         try:
-            # 정렬 버튼 클릭
-            sort_xpath = "//button[contains(@aria-label, '리뷰 정렬')] | //span[text()='정렬'] | //button[contains(@class, 'S9kvJb')]"
+            # 정렬 버튼 클릭: '정렬'이라는 텍스트를 포함하거나 aria-label에 '정렬'이 있는 버튼
+            sort_xpath = "//button[contains(@aria-label, '정렬') or contains(., '정렬')]"
             sort_btn = wait.until(EC.element_to_be_clickable((By.XPATH, sort_xpath)))
             driver.execute_script("arguments[0].click();", sort_btn)
             time.sleep(random.uniform(1.5, 2.5))
             
-            # '최신순' 옵션 클릭
-            latest_xpath = "//div[@role='menuitemradio' and .//div[text()='최신순']] | //div[contains(@class, 'fxNQSd') and text()='최신순']"
-            latest_opt = wait.until(EC.element_to_be_clickable((By.XPATH, latest_xpath)))
-            driver.execute_script("arguments[0].click();", latest_opt)
+            # '최신순' 옵션 클릭: 팝업 메뉴 내 '최신'이라는 단어가 포함된 요소
+            latest_xpath = "//div[@role='menuitemradio' and contains(., '최신')] | //div[contains(text(), '최신순')] | //div[contains(text(), '최신')]"
+            # 화면에 보이는 요소 중 하나를 선택
+            options = driver.find_elements(By.XPATH, latest_xpath)
+            clicked = False
+            for opt in options:
+                if opt.is_displayed():
+                    driver.execute_script("arguments[0].click();", opt)
+                    clicked = True
+                    break
+            
+            if not clicked:
+                raise Exception("최신순 옵션을 클릭할 수 없습니다.")
+                
             time.sleep(random.uniform(3.0, 4.5))
             yield "   - 최신순 정렬 완료"
         except Exception as e:
@@ -158,7 +166,11 @@ def run_google_maps_crawler(api_key=None, use_sentiment=False, use_summary=True,
                 if content_tag:
                     content = content_tag.get_text(separator=' ', strip=True).strip()
 
-                if not content: continue 
+                if not content: continue
+
+                # [필터] 크롤링 날짜 기준 7일 초과 리뷰 제외
+                if not is_within_one_week(date_text):
+                    continue
 
                 count += 1
                 sentiment, reason = "", ""
