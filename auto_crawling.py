@@ -120,29 +120,58 @@ def main():
             
         pre_filtered.append(item)
     
-    # 2. 중복 제거 (내용 기준, '네이버 블로그' 우선)
-    # 내용(본문내용)을 키워드로 하여 그룹화 후 우선순위 적용
-    dedup_dict = {}
-    for item in pre_filtered:
-        content_key = re.sub(r'\s+', '', item.get('본문내용', '')).strip() # 공백 제거 후 비교
-        if not content_key:
-            continue
-            
-        if content_key not in dedup_dict:
-            dedup_dict[content_key] = item
-        else:
-            # 기존에 저장된 것보다 '네이버 블로그'가 우선순위가 높음
-            existing_src = dedup_dict[content_key].get('출처', '')
-            current_src = item.get('출처', '')
-            
-            if existing_src != '네이버 블로그' and current_src == '네이버 블로그':
-                dedup_dict[content_key] = item
-    
-    filtered_results = list(dedup_dict.values())
-    removed_count = len(all_results) - len(filtered_results)
+    # 2. 중복 제거 (3단계: URL → 제목+작성자+날짜 → 본문내용)
+    # 같은 글이 네이버 블로그·Daum에 동시에 수집될 경우 네이버 블로그를 우선 유지
+    PRIORITY = {'네이버 블로그': 1, 'Daum 검색': 2, '카카오맵 리뷰': 3, '구글 리뷰': 4, '인스타그램': 5}
+
+    def get_priority(item):
+        return PRIORITY.get(item.get('출처', ''), 99)
+
+    def normalize(text):
+        """공백·특수문자 제거 후 소문자 변환 (비교용)"""
+        return re.sub(r'[\s\W]+', '', str(text)).lower()
+
+    url_dict     = {}  # ① URL 완전 일치
+    title_dict   = {}  # ② 제목 + 작성자 + 날짜 조합
+    content_dict = {}  # ③ 본문내용 완전 일치 (기존)
+
+    # 우선순위 높은 순서로 정렬 후 삽입 (네이버 블로그가 먼저 들어가도록)
+    pre_filtered_sorted = sorted(pre_filtered, key=get_priority)
+
+    for item in pre_filtered_sorted:
+        url   = (item.get('URL') or '').strip()
+        title = normalize(item.get('제목', ''))
+        author = normalize(item.get('작성자', ''))
+        date  = normalize(item.get('작성일', ''))
+        content_key = normalize(item.get('본문내용', ''))
+        title_key = f"{title}_{author}_{date}"
+
+        # 3가지 키 중 하나라도 이미 등록되어 있으면 중복으로 판단 → 건너뜀
+        is_dup = (
+            (url and url in url_dict) or
+            (title_key and title_key in title_dict) or
+            (content_key and content_key in content_dict)
+        )
+
+        if not is_dup:
+            if url:         url_dict[url] = item
+            if title_key:   title_dict[title_key] = item
+            if content_key: content_dict[content_key] = item
+
+    # url_dict 기준 결과 수집 (URL 없는 항목은 title_dict/content_dict 보완)
+    seen_ids = set()
+    filtered_results = []
+    for d in [url_dict, title_dict, content_dict]:
+        for item in d.values():
+            item_id = id(item)
+            if item_id not in seen_ids:
+                seen_ids.add(item_id)
+                filtered_results.append(item)
+
+    removed_count = len(pre_filtered) - len(filtered_results)
     all_results = filtered_results
     if removed_count > 0:
-        print(f"     ⚠️ {removed_count}건의 오래된 후기가 제외되었습니다.")
+        print(f"     ⚠️ {removed_count}건의 중복 후기가 제외되었습니다. (URL/제목/내용 기준)")
     print(f"     ✅ 총 {len(all_results)}건의 최신 후기 유지")
 
     # 결과 저장

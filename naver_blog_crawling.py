@@ -72,15 +72,17 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
 
         # 2. 결과 추출 (선택자 보강)
         results_count = 0
+        seen_urls = set()  # URL 기반 중복 방지
         
         for page in range(1, max_pages + 1):
             yield f"[{page}페이지] 검색 결과 추출 중..."
             
-            # [최신 보강] 네이버의 최신 동적 레이아웃(Fender) 및 기존 VIEW 모두 대응 
+            # 가장 세밀한 개별 글 단위 선택자를 우선 탐색하여 중복 파싱 방지
+            # div.api_subject_bx 는 광고+글 묶음 컨테이너라 내부에 여러 글이 포함돼 중복 발생
             posts_selectors = [
-                "div.api_subject_bx", # 최신 Fender 레이아웃 컨테이너
-                "li.bx",              # 기존 레이아웃
-                "div.view_wrap"
+                "div.view_wrap",     # 개별 글 단위 (가장 정확)
+                "li.bx",             # 기존 레이아웃
+                "div.api_subject_bx" # 최신 Fender (대안)
             ]
             posts_elems = []
             for selector in posts_selectors:
@@ -113,6 +115,13 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
                     # innerText를 사용하여 <mark> 등 하위 태그 텍스트를 유실 없이 합침
                     title = title_elem.get_attribute("innerText").strip()
                     link = title_elem.get_attribute("href")
+
+                    # URL 중복 체크 (같은 글이 2번 파싱되는 경우 방지)
+                    if link and link in seen_urls:
+                        yield f"   ⏩ [중복 제외] '{title[:20]}...'"
+                        continue
+                    if link:
+                        seen_urls.add(link)
                     
                     # 2. 작성자 정보 추출 (사용자 제공 HTML 기반)
                     author = "익명"
