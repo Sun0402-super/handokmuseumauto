@@ -5,6 +5,9 @@ import os
 import time
 import json
 import io
+import zipfile
+import base64
+import streamlit.components.v1 as components
 import sys
 
 # [수정] 배포 환경(Streamlit Cloud 등)에서의 로컬 모듈 인식 문제 해결을 위해 현재 경로를 최우선 순위로 추가
@@ -134,6 +137,9 @@ if 'filename' not in st.session_state: st.session_state.filename = None
 if 'is_finished' not in st.session_state: st.session_state.is_finished = False
 if 'is_running' not in st.session_state: st.session_state.is_running = False
 if 'platform_excel_data' not in st.session_state: st.session_state.platform_excel_data = {}
+if 'zip_data' not in st.session_state: st.session_state.zip_data = None
+if 'zip_filename' not in st.session_state: st.session_state.zip_filename = None
+if 'auto_dl_done' not in st.session_state: st.session_state.auto_dl_done = True
 
 # 데이터 가공용 함수 정의
 def process_for_excel(df, source):
@@ -255,16 +261,28 @@ def save_with_autofit(df, filepath, sheet_name='Sheet1'):
             column = col[0].column_letter # 컬럼 문자 (A, B, C...)
             for cell in col:
                 try:
-                    # 한글 등 멀티바이트 문자 고려하여 길이 계산 (대략적)
                     val = str(cell.value) if cell.value is not None else ""
-                    # 한글은 영문보다 자리를 더 차지하므로 보정
                     length = sum(2 if ord(c) > 128 else 1 for c in val)
                     if length > max_length:
                         max_length = length
                 except: pass
-            # 약간의 여백 추가 및 최대 너비 제한
             adjusted_width = (max_length + 2)
             worksheet.column_dimensions[column].width = min(max(adjusted_width, 10), 80)
+
+def trigger_auto_download(data_bytes, filename):
+    """JavaScript를 이용해 파일 자동 다운로드 트리거 (브라우저 기본 다운로드 폴더에 저장)"""
+    if not data_bytes or len(data_bytes) > 15 * 1024 * 1024:  # 15MB 초과 시 스킵
+        return False
+    b64 = base64.b64encode(data_bytes).decode()
+    mime = "application/zip" if filename.endswith('.zip') else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    components.html(
+        f"""<html><body>
+        <a id="auto_dl" href="data:{mime};base64,{b64}" download="{filename}"></a>
+        <script>document.getElementById('auto_dl').click();</script>
+        </body></html>""",
+        height=0
+    )
+    return True
 
 with st.sidebar:
     st.header("⚙️ 설정")
@@ -427,6 +445,9 @@ if start_clicked:
     st.session_state.excel_data = None
     st.session_state.filename = None
     st.session_state.platform_excel_data = {}
+    st.session_state.zip_data = None
+    st.session_state.zip_filename = None
+    st.session_state.auto_dl_done = False
     st.session_state.is_finished = False
     st.session_state.is_running = True
     
@@ -695,6 +716,20 @@ if start_clicked:
                 
                 st.session_state.excel_data = output.getvalue()
                 st.session_state.filename = unified_fname
+                
+                # ── [추가] ZIP 파일 생성 (통합 + 개별 파일 모두 포함) ──
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+                    # 1. 통합 보고서 추가
+                    zip_file.writestr(unified_fname, st.session_state.excel_data)
+                    # 2. 플랫폼별 개별 파일 추가
+                    for src, (data, fname) in st.session_state.platform_excel_data.items():
+                        zip_file.writestr(fname, data)
+                
+                st.session_state.zip_data = zip_buffer.getvalue()
+                st.session_state.zip_filename = f"{today}_한독의약박물관_전체결과.zip"
+                # ──────────────────────────────────────────────────
+                
                 update_logs(f"✅ 저장 완료: {target_dir}")
             except Exception as e:
                 update_logs(f"⚠️ 파일 저장 오류: {e}")
@@ -704,3 +739,9 @@ if start_clicked:
         st.session_state.is_running = False
         update_logs("🏁 모든 작업 완료!")
         st.rerun()
+
+# ── [추가] 자동 다운로드 트리거 (UI 하단에 배치) ──
+if st.session_state.is_finished and st.session_state.zip_data and not st.session_state.auto_dl_done:
+    update_logs("📂 결과를 ZIP 파일로 자동 다운로드합니다...")
+    trigger_auto_download(st.session_state.zip_data, st.session_state.zip_filename)
+    st.session_state.auto_dl_done = True # 중복 다운로드 방지
