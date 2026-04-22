@@ -133,6 +133,7 @@ if 'excel_data' not in st.session_state: st.session_state.excel_data = None
 if 'filename' not in st.session_state: st.session_state.filename = None
 if 'is_finished' not in st.session_state: st.session_state.is_finished = False
 if 'is_running' not in st.session_state: st.session_state.is_running = False
+if 'platform_excel_data' not in st.session_state: st.session_state.platform_excel_data = {}
 
 # 데이터 가공용 함수 정의
 def process_for_excel(df, source):
@@ -308,13 +309,23 @@ with st.sidebar:
             st.success("✅ 수집 및 분석 완료!")
             if st.session_state.excel_data:
                 st.download_button(
-                    label="📥 결과 다운로드 (Excel)",
+                    label="📥 통합 보고서 다운로드",
                     data=st.session_state.excel_data,
                     file_name=st.session_state.filename,
                     key="download_btn_sidebar",
                     width="stretch"
                 )
-            else:
+            if st.session_state.get('platform_excel_data'):
+                st.write("**📂 플랫폼별 개별 파일:**")
+                for src, (data, fname) in st.session_state.platform_excel_data.items():
+                    st.download_button(
+                        label=f"📥 {src}",
+                        data=data,
+                        file_name=fname,
+                        key=f"dl_sb_{src}",
+                        width="stretch"
+                    )
+            if not st.session_state.excel_data and not st.session_state.get('platform_excel_data'):
                 st.info("ℹ️ 결과가 [후기] 폴더에 저장되었습니다.")
         else:
             st.warning("⚠️ 수집된 결과가 없습니다.")
@@ -341,13 +352,27 @@ with col_res:
             st.success(f"✅ 총 {len(st.session_state.results)}건의 후기 수집이 완료되었습니다!")
             if st.session_state.excel_data:
                 st.download_button(
-                    label="📥 수집된 결과 엑셀 다운로드 (통합 보고서)",
+                    label="📥 통합 보고서 다운로드 (전체/긍정/부정 시트)",
                     data=st.session_state.excel_data,
                     file_name=st.session_state.filename,
                     key="download_btn_main",
                     width="stretch"
                 )
-            else:
+            if st.session_state.get('platform_excel_data'):
+                with st.expander("📂 플랫폼별 개별 파일 다운로드", expanded=True):
+                    plat_items = list(st.session_state.platform_excel_data.items())
+                    n_cols = min(len(plat_items), 3)
+                    plat_cols = st.columns(n_cols)
+                    for i, (src, (data, fname)) in enumerate(plat_items):
+                        with plat_cols[i % n_cols]:
+                            st.download_button(
+                                label=f"📥 {src}",
+                                data=data,
+                                file_name=fname,
+                                key=f"dl_main_{src}",
+                                width="stretch"
+                            )
+            if not st.session_state.excel_data and not st.session_state.get('platform_excel_data'):
                 st.info("ℹ️ 플랫폼별 개별 엑셀 파일은 `[후기]` 폴더에 저장되었습니다.")
         else:
             st.warning("⚠️ 수집된 결과가 없습니다. 옵션을 확인해 주세요.")
@@ -401,6 +426,7 @@ if start_clicked:
     st.session_state.logs = []
     st.session_state.excel_data = None
     st.session_state.filename = None
+    st.session_state.platform_excel_data = {}
     st.session_state.is_finished = False
     st.session_state.is_running = True
     
@@ -622,7 +648,17 @@ if start_clicked:
                     if not sdf.empty:
                         pdf = process_for_excel(sdf, src)
                         fname = f"{src}_{today}.xlsx"
-                        save_with_autofit(pdf, os.path.join(target_dir, fname), sheet_name=src)
+                        # 로컬(Windows) 환경에서만 파일 저장
+                        if sys.platform == 'win32':
+                            try:
+                                save_with_autofit(pdf, os.path.join(target_dir, fname), sheet_name=src)
+                            except Exception as save_err:
+                                update_logs(f"⚠️ {src} 로컬 저장 실패: {save_err}")
+                        # 다운로드용 BytesIO 생성 (항상 생성)
+                        plat_buf = io.BytesIO()
+                        with pd.ExcelWriter(plat_buf, engine='openpyxl') as writer:
+                            pdf.to_excel(writer, index=False, sheet_name=src[:31])
+                        st.session_state.platform_excel_data[src] = (plat_buf.getvalue(), fname)
                 
                 # 통합 보고서 저장
                 unified_df = process_for_unified_excel(df)
