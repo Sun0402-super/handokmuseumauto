@@ -92,10 +92,22 @@ def instagram_login(driver, username, password):
             
         except Exception as e:
             yield f"     [로그인] 자동 로그인 실패: {e}"
+            if is_cloud:
+                yield "     [원인] Streamlit Cloud(리눅스 서버)에서는 인스타그램이 자동화 도구(빗)를 감지하여 로그인을 차단합니다."
+                yield "     [해결방안 1] 로심 PC에서 정규 Chrome으로 인스타그램 로그인 후, 데이터를 로컴 Streamlit으로 수집하세요."
+                yield "     [해결방안 2] 먹한끄.윤드인 등 판매사이트의 인스타그램 수켜지를 직접 사용하는 방법도 확인하세요."
 
     # 3. 수동 로그인 대기 (아이디/비번이 없거나 자동 로그인이 실패한 경우)
     if is_cloud:
-        yield "     [알림] 클라우드 환경에서는 수동 로그인이 지원되지 않습니다. (로컬 실행 권장)"
+        yield "     ⚠️ [인스타그램 수집 불가 안내]"
+        yield "     Streamlit Cloud(리눅스 서버)에서는 인스타그램 로그인이 불가능합니다."
+        yield "     📌 원인: 인스타그램은 클라우드 서버 IP + Selenium 자동화를 감지하여 차단합니다."
+        yield "     💡 해결방법:"
+        yield "        1. 로컬 PC에서 Streamlit을 실행하면 수동 로그인 후 수집 가능합니다."
+        yield "           (run_app.bat 실행 → 브라우저에서 직접 로그인)"
+        yield "        2. 인스타그램 공식 해시태그 페이지에서 직접 후기를 모니터링하세요."
+        yield "           👉 https://www.instagram.com/explore/tags/한독의약박물관/"
+        yield "     📋 현재 네이버 블로그, 카카오맵, Google 지도 수집은 정상 동작 중입니다."
         return False
 
     yield "**************************************************************"

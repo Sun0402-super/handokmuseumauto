@@ -78,11 +78,13 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
             yield f"[{page}페이지] 검색 결과 추출 중..."
             
             # 가장 세밀한 개별 글 단위 선택자를 우선 탐색하여 중복 파싱 방지
+            # data-template-id="ugcItem" : Fender 레이아웃에서 개별 글 단위로 정확하게 파싱
             # div.api_subject_bx 는 광고+글 묶음 컨테이너라 내부에 여러 글이 포함돼 중복 발생
             posts_selectors = [
-                "div.view_wrap",     # 개별 글 단위 (가장 정확)
-                "li.bx",             # 기존 레이아웃
-                "div.api_subject_bx" # 최신 Fender (대안)
+                "[data-template-id='ugcItem']", # Fender 레이아웃 개별 글 단위 (최우선)
+                "div.view_wrap",                 # 개별 글 단위
+                "li.bx",                         # 기존 레이아웃
+                "div.api_subject_bx"             # 최신 Fender (대안)
             ]
             posts_elems = []
             for selector in posts_selectors:
@@ -142,17 +144,32 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
                     
                     # 3. 작성일 정보 추출 (사용자 제공 HTML 기반)
                     date_raw = "-"
-                    date_selectors = [
+                    # sds-comps-profile-info-subtext 는 같은 블록 내 여러 요소가 있을 수 있음
+                    # find_elements로 전부 가져온 뒤 숫자/상대날짜 패턴인 것만 사용
+                    date_selectors_multi = [
                         "span.sds-comps-profile-info-subtext", # Fender 날짜 (예: 2일 전)
                         "span.sub_time",                       # 기존 날짜
                         "span.txt_sub"
                     ]
-                    for selector in date_selectors:
+                    _date_pattern = re.compile(r"(\d+\s*(일|주|달|개월|년)?\s*전|\d{4}[.\-]\d{1,2}[.\-]\d{1,2}|ago|hour|minute|second|just now)", re.IGNORECASE)
+                    for selector in date_selectors_multi:
                         try:
-                            date_elem = p.find_element(By.CSS_SELECTOR, selector)
-                            date_raw = date_elem.get_attribute("innerText").strip()
-                            if date_raw: break
+                            date_elems = p.find_elements(By.CSS_SELECTOR, selector)
+                            for de in date_elems:
+                                candidate = de.get_attribute("innerText").strip()
+                                if candidate and _date_pattern.search(candidate):
+                                    date_raw = candidate
+                                    break
+                            if date_raw != "-": break
                         except: continue
+                    # 여전히 못 찾았으면 첫 번째 요소라도 사용
+                    if date_raw == "-":
+                        for selector in date_selectors_multi:
+                            try:
+                                date_elem = p.find_element(By.CSS_SELECTOR, selector)
+                                date_raw = date_elem.get_attribute("innerText").strip()
+                                if date_raw: break
+                            except: continue
                     
                     # 4. 본문 요약 내용 추출 (사용자 제공 HTML 기반)
                     content_snippet = ""
