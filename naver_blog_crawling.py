@@ -82,16 +82,16 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
             # div.api_subject_bx 는 광고+글 묶음 컨테이너라 내부에 여러 글이 포함돼 중복 발생
             posts_selectors = [
                 "[data-template-id='ugcItem']", # Fender 레이아웃 개별 글 단위 (최우선)
-                "div.view_wrap",                 # 개별 글 단위
                 "li.bx",                         # 기존 레이아웃
+                "div.view_wrap",                 # 개별 글 단위
                 "div.api_subject_bx"             # 최신 Fender (대안)
             ]
             posts_elems = []
             for selector in posts_selectors:
                 posts_elems = driver.find_elements(By.CSS_SELECTOR, selector)
-                if len(posts_elems) >= 1: 
+                if len(posts_elems) >= 1:
                     yield f"✅ {len(posts_elems)}건의 검색 결과 발견 ({selector})"
-                    break 
+                    break
             
             if not posts_elems:
                 yield "⚠️ 검색 결과 목록을 인식하지 못했습니다. 레이아웃이 변경되었을 수 있습니다."
@@ -99,24 +99,52 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
             
             for i, p in enumerate(posts_elems, 1):
                 try:
-                    # 1. 제목 및 URL
+                    # 1. 제목 및 URL — 클래스명이 난독화되어 있으므로 구조 기반으로 탐색
                     title_elem = None
-                    title_selectors = [
-                        "a.T4d_tSMrB8qRjbb9_yER", # Fender 제목
-                        "a.title_link",           # 기존 제목
-                        "a.api_txt_lines"
+                    title = ""
+                    link = ""
+
+                    # 1-a. 고정 클래스명 셀렉터 (먼저 시도)
+                    title_selectors_fixed = [
+                        "a.title_link",           # 기존 레이아웃
+                        "a.api_txt_lines",        # 기존 레이아웃 (본문)
                     ]
-                    for selector in title_selectors:
+                    for selector in title_selectors_fixed:
                         try:
                             title_elem = p.find_element(By.CSS_SELECTOR, selector)
-                            if title_elem: break
-                        except: continue
-                    
-                    if not title_elem: continue
-                    
+                            if title_elem:
+                                break
+                        except:
+                            continue
+
+                    # 1-b. 구조 기반 탐색: naver.com 도메인 링크 중 가장 텍스트가 긴 것을 제목으로
+                    if not title_elem:
+                        try:
+                            candidates = p.find_elements(By.CSS_SELECTOR, "a[href]")
+                            best = None
+                            best_len = 0
+                            for a in candidates:
+                                href = a.get_attribute("href") or ""
+                                # 블로그/포스트 링크만 대상으로 함
+                                if "blog.naver.com" in href or "m.blog.naver.com" in href:
+                                    text = (a.get_attribute("innerText") or "").strip()
+                                    if len(text) > best_len:
+                                        best_len = len(text)
+                                        best = a
+                            if best and best_len > 0:
+                                title_elem = best
+                        except:
+                            pass
+
+                    if not title_elem:
+                        continue
+
                     # innerText를 사용하여 <mark> 등 하위 태그 텍스트를 유실 없이 합침
-                    title = title_elem.get_attribute("innerText").strip()
-                    link = title_elem.get_attribute("href")
+                    title = (title_elem.get_attribute("innerText") or "").strip()
+                    link = title_elem.get_attribute("href") or ""
+
+                    if not title:
+                        continue
 
                     # URL 중복 체크 (같은 글이 2번 파싱되는 경우 방지)
                     if link and link in seen_urls:
@@ -125,21 +153,23 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
                     if link:
                         seen_urls.add(link)
                     
-                    # 2. 작성자 정보 추출 (사용자 제공 HTML 기반)
+                    # 2. 작성자 정보 추출
                     author = "익명"
                     author_selectors = [
                         "span.sds-comps-profile-info-title-text", # Fender 작성자 (가장 정확)
-                        "a.fender-ui_475445f0",                   # Fender 작성자 프로필 링크
                         "a.sub_txt.sub_name",                     # 기존 작성자
                         "span.elps1"
                     ]
                     for selector in author_selectors:
                         try:
                             author_elem = p.find_element(By.CSS_SELECTOR, selector)
-                            author = author_elem.get_attribute("innerText").strip()
-                            if author: break
-                        except: continue
-                    
+                            txt = (author_elem.get_attribute("innerText") or "").strip()
+                            if txt:
+                                author = txt
+                                break
+                        except:
+                            continue
+
                     yield f"🔍 [{i}] {author}님의 글 분석 중..."
                     
                     # 3. 작성일 정보 추출 (사용자 제공 HTML 기반)
@@ -171,7 +201,7 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
                                 if date_raw: break
                             except: continue
                     
-                    # 4. 본문 요약 내용 추출 (사용자 제공 HTML 기반)
+                    # 4. 본문 요약 내용 추출
                     content_snippet = ""
                     snippet_selectors = [
                         "a.fds-ugc-ellipsis2",           # Fender 2줄 요약
@@ -182,12 +212,16 @@ def crawl_naver_blog(query, max_pages=1, api_key=None, use_sentiment=False, use_
                     ]
                     for selector in snippet_selectors:
                         try:
-                            content_snippet = p.find_element(By.CSS_SELECTOR, selector).get_attribute("innerText").strip()
-                            if content_snippet: break
-                        except: continue
+                            snippet_text = p.find_element(By.CSS_SELECTOR, selector).get_attribute("innerText") or ""
+                            content_snippet = snippet_text.strip()
+                            if content_snippet:
+                                break
+                        except:
+                            continue
 
-                    # [필터] 크롤링 날짜 기준 7일 초과 게시물 제외
-                    if not is_within_one_week(date_raw):
+                    # [필터] 날짜를 찾지 못한 경우(date_raw=="-") → 7일 이내로 간주하고 포함
+                    # [필터] 날짜를 찾은 경우 → 7일 초과 시 제외
+                    if date_raw != "-" and not is_within_one_week(date_raw):
                         yield f"   ⏩ [날짜 제외] '{title[:20]}...' ({date_raw})"
                         continue
 
